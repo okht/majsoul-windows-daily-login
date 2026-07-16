@@ -70,6 +70,16 @@ async function waitForMatrix(edge, timeoutMs = 10_000) {
   throw new Error("EVENT_MATRIX_NOT_READY");
 }
 
+async function waitForEventCount(edge, type, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const matrix = matrixFromText((await edge.metadata()).text);
+    if (matrix?.[type] > 0) return matrix;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("EVENT_MATRIX_STALE");
+}
+
 function expectZeroMatrix(matrix) {
   expect(Object.keys(matrix)).toEqual([...EVENT_TYPES].sort());
   expect(Object.values(matrix).every((count) => count === 0)).toBe(true);
@@ -124,6 +134,19 @@ afterAll(async () => {
 }, 30_000);
 
 describe("real Edge passive event matrix", () => {
+  it("keeps the doctype as the first fixture character", async () => {
+    const automatic = await readFile(
+      path.join(HERE, "fixtures", "automatic-lobby.html"),
+      "utf8"
+    );
+    const manual = await readFile(
+      path.join(HERE, "fixtures", "manual-action.html"),
+      "utf8"
+    );
+    expect(automatic.startsWith("<!doctype html>")).toBe(true);
+    expect(manual.startsWith("<!doctype html>")).toBe(true);
+  });
+
   integration("proves every recorder counter using fixture-owned seed events", async () => {
     const edge = await freshEdge();
     try {
@@ -131,6 +154,18 @@ describe("real Edge passive event matrix", () => {
       const matrix = await waitForMatrix(edge);
       expect(Object.keys(matrix)).toEqual([...EVENT_TYPES].sort());
       expect(Object.values(matrix).every((count) => count === 1)).toBe(true);
+    } finally {
+      await edge.close();
+    }
+  }, 60_000);
+
+  integration("publishes a fixture-owned event dispatched after READY", async () => {
+    const edge = await freshEdge();
+    try {
+      await edge.open(`${baseUrl}/automatic-lobby.html?lateSeed=pointerdown`);
+      expectZeroMatrix(await waitForMatrix(edge));
+      const matrix = await waitForEventCount(edge, "pointerdown");
+      expect(matrix.pointerdown).toBe(1);
     } finally {
       await edge.close();
     }

@@ -1,7 +1,13 @@
-import { readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "acorn";
 import * as walk from "acorn-walk";
+import {
+  buildAutomatedGraph,
+  collectProjectSources
+} from "./project-source-graph.mjs";
+import { grepForbiddenSource } from "./source-grep-policy.mjs";
+
+export { grepForbiddenSource };
 
 const PASSIVE_EDGE_FILE = "src/browser/passive-edge.mjs";
 const FINGERPRINT_FILE = "src/browser/fingerprint.mjs";
@@ -28,79 +34,18 @@ const PLAYWRIGHT_HANDLE_RESULTS = new Set([
   "newPage",
   "locator"
 ]);
-const FORBIDDEN_MEMBER_NAMES = new Set([
-  "click",
-  "dblclick",
-  "tap",
-  "press",
-  "pressSequentially",
-  "type",
-  "fill",
-  "clear",
-  "check",
-  "uncheck",
-  "setChecked",
-  "selectOption",
-  "selectText",
-  "select",
-  "setInputFiles",
-  "upload",
-  "hover",
-  "focus",
-  "blur",
-  "dragTo",
-  "drag",
-  "dispatchEvent",
-  "scrollIntoViewIfNeeded",
-  "mouse",
-  "keyboard",
-  "touchscreen",
-  "clipboard",
-  "down",
-  "up",
-  "move",
-  "wheel",
-  "insertText",
-  "evaluate",
-  "evaluateAll",
-  "evaluateHandle",
-  "$eval",
-  "$$eval",
-  "waitForFunction",
-  "addInitScript",
-  "addScriptTag",
-  "setContent",
-  "exposeBinding",
-  "exposeFunction",
-  "addLocatorHandler",
-  "pause",
-  "route",
-  "routeFromHAR",
-  "routeWebSocket",
-  "unroute",
-  "newCDPSession",
-  "newBrowserCDPSession",
-  "connectOverCDP",
-  "connect",
-  "send",
-  "addCookies",
-  "clearCookies",
-  "storageState",
-  "grantPermissions",
-  "setGeolocation",
-  "setOffline",
-  "setExtraHTTPHeaders",
-  "accept",
-  "dismiss",
-  "launch",
-  "launchServer"
-]);
 const DYNAMIC_ESCAPE_MEMBERS = new Map([
   ["Reflect", new Set(["get", "apply"])],
   ["Object", new Set(["getOwnPropertyDescriptor"])],
   ["process", new Set(["getBuiltinModule"])]
 ]);
 const CALL_ESCAPE_MEMBERS = new Set(["call", "apply", "bind"]);
+const DYNAMIC_GLOBAL_ROOTS = new Set([
+  "globalThis",
+  "global",
+  "window",
+  "self"
+]);
 const TARGET = "https://game.maj-soul.com/1/";
 
 function normalizeFile(file) {
@@ -150,78 +95,15 @@ function parseModule(source, file, diagnostics) {
   }
 }
 
-function moduleSpecifiers(ast, source) {
-  if (ast) {
-    const result = [];
-    for (const node of ast.body) {
-      if (
-        (node.type === "ImportDeclaration" ||
-          node.type === "ExportAllDeclaration" ||
-          node.type === "ExportNamedDeclaration") &&
-        node.source?.type === "Literal"
-      ) {
-        result.push({ value: node.source.value, node: node.source });
-      }
-    }
-    return result;
-  }
-
-  const result = [];
-  const expression = /\b(?:import|export)\s+(?:[^"'\r\n]*?\s+from\s+)?["']([^"'\r\n]+)["']/gu;
-  let match;
-  while ((match = expression.exec(source)) !== null) {
-    const before = source.slice(0, match.index);
-    const lines = before.split(/\r?\n/u);
-    result.push({
-      value: match[1],
-      node: {
-        loc: {
-          start: {
-            line: lines.length,
-            column: lines.at(-1).length
-          }
-        }
-      }
-    });
-  }
-  return result;
-}
-
-function isAbsoluteSpecifier(specifier) {
-  return (
-    specifier.startsWith("/") ||
-    specifier.startsWith("file:") ||
-    /^[A-Za-z]:[\\/]/u.test(specifier)
-  );
-}
-
-function resolveRelativeImport(file, specifier, sources, diagnostics, node) {
-  if (/[?#]/u.test(specifier)) {
-    diagnostics.push(diagnostic(file, node, "IMPORT_SUFFIX_FORBIDDEN"));
-    return null;
-  }
-  if (specifier.includes("\\")) {
-    diagnostics.push(diagnostic(file, node, "IMPORT_ABSOLUTE"));
-    return null;
-  }
-  const resolved = path.posix.normalize(
-    path.posix.join(path.posix.dirname(file), specifier)
-  );
-  if (!resolved.startsWith("src/") || resolved.includes("../")) {
-    diagnostics.push(diagnostic(file, node, "IMPORT_TRAVERSAL"));
-    return null;
-  }
-  if (!specifier.endsWith(".mjs") || !sources.has(resolved)) {
-    diagnostics.push(diagnostic(file, node, "IMPORT_MISSING"));
-    return null;
-  }
-  return resolved;
-}
-
 function scanImportBoundaries(file, ast, diagnostics) {
   if (!ast) return;
   for (const node of ast.body) {
     const source = node.source?.value;
+    if (isAlternateAutomationPackage(source)) {
+      diagnostics.push(
+        diagnostic(file, node.source ?? node, "AUTOMATION_PACKAGE_FORBIDDEN")
+      );
+    }
     if (source === "playwright-core") {
       if (file !== PASSIVE_EDGE_FILE) {
         diagnostics.push(
@@ -258,6 +140,30 @@ function scanImportBoundaries(file, ast, diagnostics) {
       }
     }
   }
+}
+
+function isAlternateAutomationPackage(source) {
+  if (typeof source !== "string" || source === "playwright-core") {
+    return false;
+  }
+  return (
+    source === "playwright" ||
+    source.startsWith("playwright/") ||
+    source.startsWith("playwright-core/") ||
+    source === "@playwright/test" ||
+    source.startsWith("@playwright/test/") ||
+    source === "puppeteer" ||
+    source.startsWith("puppeteer/") ||
+    source === "puppeteer-core" ||
+    source.startsWith("puppeteer-core/") ||
+    source === "selenium-webdriver" ||
+    source.startsWith("selenium-webdriver/") ||
+    source === "webdriver" ||
+    source.startsWith("webdriver/") ||
+    source === "webdriverio" ||
+    source.startsWith("webdriverio/") ||
+    source.startsWith("@wdio/")
+  );
 }
 
 function staticString(node, constStrings = new Map()) {
@@ -356,13 +262,155 @@ function objectKeysAllowed(node, allowed) {
   });
 }
 
+function matchesTargetMismatch(node, urlName) {
+  return (
+    node?.type === "BinaryExpression" &&
+    node.operator === "!==" &&
+    ((node.left.type === "Identifier" &&
+      node.left.name === urlName &&
+      node.right.type === "Identifier" &&
+      node.right.name === "TARGET") ||
+      (node.right.type === "Identifier" &&
+        node.right.name === urlName &&
+        node.left.type === "Identifier" &&
+        node.left.name === "TARGET"))
+  );
+}
+
+function matchesAllowLoopback(node) {
+  return (
+    node?.type === "MemberExpression" &&
+    !node.computed &&
+    node.object.type === "ThisExpression" &&
+    node.property.type === "PrivateIdentifier" &&
+    node.property.name === "allowLoopback"
+  );
+}
+
+function matchesSafeLoopbackCall(node, urlName) {
+  return (
+    node?.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    node.callee.name === "isSafeLoopbackTarget" &&
+    node.arguments.length === 1 &&
+    node.arguments[0].type === "Identifier" &&
+    node.arguments[0].name === urlName
+  );
+}
+
+function isExactTargetGuard(node, urlName) {
+  if (
+    node?.type !== "IfStatement" ||
+    node.test.type !== "LogicalExpression" ||
+    node.test.operator !== "&&" ||
+    !matchesTargetMismatch(node.test.left, urlName)
+  ) {
+    return false;
+  }
+  const negated = node.test.right;
+  if (
+    negated.type !== "UnaryExpression" ||
+    negated.operator !== "!" ||
+    negated.argument.type !== "LogicalExpression" ||
+    negated.argument.operator !== "&&" ||
+    !matchesAllowLoopback(negated.argument.left) ||
+    !matchesSafeLoopbackCall(negated.argument.right, urlName)
+  ) {
+    return false;
+  }
+  let throws = false;
+  walk.simple(node.consequent, {
+    ThrowStatement() {
+      throws = true;
+    }
+  });
+  return throws;
+}
+
+function collectGuardedGotoCalls(file, ast, diagnostics) {
+  const guarded = new Set();
+  walk.simple(ast, {
+    MethodDefinition(method) {
+      if (
+        method.computed ||
+        method.key.type !== "Identifier" ||
+        method.key.name !== "open" ||
+        method.value.params.length === 0 ||
+        method.value.params[0].type !== "Identifier"
+      ) {
+        return;
+      }
+      const urlName = method.value.params[0].name;
+      const guards = method.value.body.body.filter((statement) =>
+        isExactTargetGuard(statement, urlName)
+      );
+      const gotoCalls = [];
+      const invalidations = [];
+      const nearestFunction = (ancestors) =>
+        [...ancestors].reverse().find((ancestor) =>
+          [
+            "FunctionExpression",
+            "FunctionDeclaration",
+            "ArrowFunctionExpression"
+          ].includes(ancestor.type)
+        );
+      walk.ancestor(method.value, {
+        AssignmentExpression(assignment, _state, ancestors) {
+          if (
+            nearestFunction(ancestors) === method.value &&
+            assignment.left.type === "Identifier" &&
+            assignment.left.name === urlName
+          ) {
+            invalidations.push(assignment);
+          }
+        },
+        UpdateExpression(update, _state, ancestors) {
+          if (
+            nearestFunction(ancestors) === method.value &&
+            update.argument.type === "Identifier" &&
+            update.argument.name === urlName
+          ) {
+            invalidations.push(update);
+          }
+        },
+        CallExpression(call, _state, ancestors) {
+          if (
+            call.callee.type === "MemberExpression" &&
+            memberName(call.callee, new Map()) === "goto"
+          ) {
+            gotoCalls.push({ call, owner: nearestFunction(ancestors) });
+          }
+        }
+      });
+      for (const { call, owner } of gotoCalls) {
+        const target = call.arguments[0];
+        const valid =
+          owner === method.value &&
+          target?.type === "Identifier" &&
+          target.name === urlName &&
+          guards.some((guard) =>
+            guard.start < call.start &&
+            !invalidations.some((change) =>
+              change.start > guard.end && change.start < call.start
+            )
+          );
+        if (valid) guarded.add(call);
+        else diagnostics.push(
+          diagnostic(file, call, "PW_NAVIGATION_GUARD")
+        );
+      }
+    }
+  });
+  return guarded;
+}
+
 function validatePlaywrightArguments(
   file,
   node,
   name,
   diagnostics,
   constStrings,
-  ancestors
+  guardedGotoCalls
 ) {
   if (name === "screenshot") {
     if (node.arguments.length === 0) return;
@@ -407,20 +455,9 @@ function validatePlaywrightArguments(
   if (name === "goto") {
     const target = node.arguments[0];
     const literalTarget = staticString(target, constStrings);
-    const enclosingOpenMethod = ancestors.some((ancestor) =>
-      ancestor.type === "MethodDefinition" &&
-      !ancestor.computed &&
-      ancestor.key.name === "open" &&
-      ancestor.value.params.some((parameter) =>
-        parameter.type === "Identifier" && parameter.name === "url"
-      )
-    );
     const validTarget =
       literalTarget === TARGET ||
-      literalTarget === undefined &&
-      target?.type === "Identifier" &&
-      target.name === "url" &&
-      enclosingOpenMethod;
+      guardedGotoCalls.has(node);
     const options = node.arguments[1];
     const validOptions =
       options === undefined ||
@@ -440,6 +477,7 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
   const tainted = new Set();
   const methodBindings = new Map();
   const privateFields = new Set();
+  const guardedGotoCalls = collectGuardedGotoCalls(file, ast, diagnostics);
 
   for (const node of ast.body) {
     if (
@@ -567,8 +605,19 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
     const parent = ancestors.at(-2);
     if (node.type === "MemberExpression" && taintKind(node.object)) {
       const name = memberName(node, constStrings);
+      const pagesZeroIndex =
+        node.computed &&
+        node.property.type === "Literal" &&
+        node.property.value === 0 &&
+        node.object.type === "CallExpression" &&
+        node.object.callee.type === "MemberExpression" &&
+        memberName(node.object.callee, constStrings) === "pages" &&
+        Boolean(taintKind(node.object.callee.object));
       if (node.optional || parent?.type === "ChainExpression") {
         diagnostics.push(diagnostic(file, node, "PW_OPTIONAL_FORBIDDEN"));
+      }
+      if (node.computed && !pagesZeroIndex) {
+        diagnostics.push(diagnostic(file, node, "PW_COMPUTED_FORBIDDEN"));
       }
       if (name === undefined) {
         diagnostics.push(diagnostic(file, node, "PW_COMPUTED_UNKNOWN"));
@@ -577,6 +626,18 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
         !PLAYWRIGHT_ALLOWED_MEMBERS.has(name)
       ) {
         diagnostics.push(diagnostic(file, node, "PW_MEMBER_FORBIDDEN"));
+      }
+      const directAllowedCall =
+        parent?.type === "CallExpression" &&
+        parent.callee === node &&
+        !parent.optional &&
+        !node.optional;
+      if (
+        name !== undefined &&
+        PLAYWRIGHT_ALLOWED_MEMBERS.has(name) &&
+        !directAllowedCall
+      ) {
+        diagnostics.push(diagnostic(file, node, "PW_MEMBER_REFERENCE"));
       }
       if (
         CALL_ESCAPE_MEMBERS.has(name) &&
@@ -608,6 +669,9 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
     }
 
     if (node.type === "CallExpression") {
+      if (node.arguments.some((argument) => taintKind(argument))) {
+        diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+      }
       if (node.callee.type === "MemberExpression") {
         const receiver = taintKind(node.callee.object);
         const name = memberName(node.callee, constStrings);
@@ -618,14 +682,9 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
             name,
             diagnostics,
             constStrings,
-            ancestors
+            guardedGotoCalls
           );
         }
-      } else if (
-        !["super"].includes(node.callee.type) &&
-        node.arguments.some((argument) => taintKind(argument))
-      ) {
-        diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
       }
     }
 
@@ -698,6 +757,20 @@ function scanAutomatedDangers(file, ast, diagnostics) {
   });
   walk.fullAncestor(ast, (node, _state, ancestors) => {
     const parent = ancestors.at(-2);
+    const isNonComputedPropertyName =
+      (parent?.type === "MemberExpression" &&
+        parent.property === node &&
+        !parent.computed) ||
+      (parent?.type === "Property" &&
+        parent.key === node &&
+        !parent.computed);
+    if (
+      node.type === "Identifier" &&
+      DYNAMIC_GLOBAL_ROOTS.has(node.name) &&
+      !isNonComputedPropertyName
+    ) {
+      diagnostics.push(diagnostic(file, node, "DYNAMIC_GLOBAL_FORBIDDEN"));
+    }
     if (
       node.type === "MemberExpression" &&
       node.object.type === "Identifier" &&
@@ -710,27 +783,73 @@ function scanAutomatedDangers(file, ast, diagnostics) {
     if (
       node.type === "Identifier" &&
       ["eval", "Function", "require", "createRequire"].includes(node.name) &&
-      parent?.type === "VariableDeclarator" &&
-      parent.init === node
+      !isNonComputedPropertyName &&
+      !(
+        parent?.type === "Property" &&
+        parent.key === node &&
+        parent.shorthand
+      )
     ) {
       diagnostics.push(diagnostic(file, node, "DYNAMIC_ESCAPE_FORBIDDEN"));
     }
   });
 }
 
+function relativeModuleTarget(file, specifier) {
+  if (
+    typeof specifier !== "string" ||
+    !specifier.startsWith(".") ||
+    /[?#\\]/u.test(specifier)
+  ) {
+    return null;
+  }
+  return path.posix.normalize(
+    path.posix.join(path.posix.dirname(file), specifier)
+  );
+}
+
+function scanPassiveEdgeImportSeam(file, ast, diagnostics) {
+  if (!ast) return;
+  for (const node of ast.body) {
+    if (
+      relativeModuleTarget(file, node.source?.value) !== PASSIVE_EDGE_FILE
+    ) {
+      continue;
+    }
+    if (node.type !== "ImportDeclaration") {
+      diagnostics.push(
+        diagnostic(file, node, "PASSIVE_EDGE_REEXPORT_FORBIDDEN")
+      );
+      continue;
+    }
+    const valid =
+      node.specifiers.length === 1 &&
+      node.specifiers[0].type === "ImportSpecifier" &&
+      node.specifiers[0].imported.name === "PassiveEdge" &&
+      node.specifiers[0].local.name === "PassiveEdge";
+    if (!valid) {
+      diagnostics.push(
+        diagnostic(file, node, "PASSIVE_EDGE_IMPORT_SHAPE")
+      );
+    }
+  }
+}
+
 function scanPassiveEdgeConstructors(file, ast, diagnostics) {
   if (!ast) return;
   const bindings = new Set();
+  const instances = new Set();
+  const constStrings = collectConstStrings(ast);
   for (const node of ast.body) {
     if (
       node.type === "ImportDeclaration" &&
-      typeof node.source.value === "string" &&
-      node.source.value.endsWith("/browser/passive-edge.mjs")
+      relativeModuleTarget(file, node.source.value) === PASSIVE_EDGE_FILE
     ) {
       for (const specifier of node.specifiers) {
         if (
           specifier.type === "ImportSpecifier" &&
-          specifier.imported.name === "PassiveEdge"
+          specifier.imported.name === "PassiveEdge" &&
+          specifier.local.name === "PassiveEdge"
         ) {
           bindings.add(specifier.local.name);
         }
@@ -739,54 +858,49 @@ function scanPassiveEdgeConstructors(file, ast, diagnostics) {
   }
   if (file === PASSIVE_EDGE_FILE) bindings.add("PassiveEdge");
 
+  function isPassiveEdgeConstruction(node) {
+    return (
+      node?.type === "NewExpression" &&
+      node.callee.type === "Identifier" &&
+      bindings.has(node.callee.name)
+    );
+  }
+
   walk.full(ast, (node) => {
+    if (isPassiveEdgeConstruction(node)) {
+      const options = node.arguments[0];
+      if (!objectKeysAllowed(options, new Set(["profileDir", "headless"]))) {
+        diagnostics.push(diagnostic(file, node, "PASSIVE_EDGE_CONSTRUCTOR"));
+      }
+    }
     if (
-      node.type !== "NewExpression" ||
-      node.callee.type !== "Identifier" ||
-      !bindings.has(node.callee.name)
-    ) return;
-    const options = node.arguments[0];
-    if (!objectKeysAllowed(options, new Set(["profileDir", "headless"]))) {
-      diagnostics.push(diagnostic(file, node, "PASSIVE_EDGE_CONSTRUCTOR"));
+      node.type === "VariableDeclarator" &&
+      node.id.type === "Identifier" &&
+      isPassiveEdgeConstruction(node.init)
+    ) {
+      instances.add(node.id.name);
     }
   });
-}
 
-function buildAutomatedGraph(sources, asts, entries, diagnostics) {
-  const roots = entries.map(normalizeFile).filter((file) => sources.has(file));
-  const visited = new Set();
-  const pending = [...roots];
-  while (pending.length > 0) {
-    const file = pending.pop();
-    if (visited.has(file)) continue;
-    visited.add(file);
+  walk.full(ast, (node) => {
     if (
-      file.startsWith("src/cli/") &&
-      !roots.includes(file)
+      node.type !== "CallExpression" ||
+      node.callee.type !== "MemberExpression" ||
+      memberName(node.callee, constStrings) !== "open"
     ) {
-      diagnostics.push(diagnostic(file, asts.get(file), "AUTOMATED_CLI_FORBIDDEN"));
+      return;
     }
-    for (const { value, node } of moduleSpecifiers(
-      asts.get(file),
-      sources.get(file)
-    )) {
-      if (typeof value !== "string") continue;
-      if (isAbsoluteSpecifier(value)) {
-        diagnostics.push(diagnostic(file, node, "IMPORT_ABSOLUTE"));
-        continue;
-      }
-      if (!value.startsWith(".")) continue;
-      const resolved = resolveRelativeImport(
-        file,
-        value,
-        sources,
-        diagnostics,
-        node
+    const receiver = node.callee.object;
+    const owned =
+      (receiver.type === "Identifier" && instances.has(receiver.name)) ||
+      isPassiveEdgeConstruction(receiver);
+    if (!owned) return;
+    if (staticString(node.arguments[0], constStrings) !== TARGET) {
+      diagnostics.push(
+        diagnostic(file, node, "PASSIVE_EDGE_OPEN_UNSAFE")
       );
-      if (resolved) pending.push(resolved);
     }
-  }
-  return visited;
+  });
 }
 
 export function auditSourceSet(sourceInput, options = {}) {
@@ -812,6 +926,7 @@ export function auditSourceSet(sourceInput, options = {}) {
   );
   for (const file of automatedGraph) {
     scanAutomatedDangers(file, asts.get(file), diagnostics);
+    scanPassiveEdgeImportSeam(file, asts.get(file), diagnostics);
     scanPassiveEdgeConstructors(file, asts.get(file), diagnostics);
   }
   if (sources.has(PASSIVE_EDGE_FILE)) {
@@ -824,79 +939,18 @@ export function auditSourceSet(sourceInput, options = {}) {
   return sortDiagnostics(diagnostics);
 }
 
-function lineColumnAt(source, index) {
-  const before = source.slice(0, index).split(/\r?\n/u);
-  return { line: before.length, column: before.at(-1).length + 1 };
-}
-
-export function grepForbiddenSource(source, file = "source.mjs") {
-  const diagnostics = [];
-  const names = [...FORBIDDEN_MEMBER_NAMES]
-    .sort((left, right) => right.length - left.length)
-    .map((value) => value.replace(/[$]/gu, "\\$&"))
-    .join("|");
-  const expression = new RegExp(
-    `\\b(?:page|locator|context|browser|mouse|keyboard|touchscreen)\\s*(?:\\.\\s*(?:${names})\\b|\\[\\s*["'](?:${names})["']\\s*\\])|\\bInput\\.dispatch[A-Za-z]+`,
-    "gu"
-  );
-  let match;
-  while ((match = expression.exec(source)) !== null) {
-    diagnostics.push({
-      file: normalizeFile(file),
-      ...lineColumnAt(source, match.index),
-      code: "SOURCE_INPUT_TOKEN"
-    });
-  }
-  return sortDiagnostics(diagnostics);
-}
-
-async function collectSourceFiles(root, relative = "", state) {
-  const directory = path.join(root, relative);
-  const entries = await readdir(directory, { withFileTypes: true });
-  for (const entry of entries) {
-    const nextRelative = path.join(relative, entry.name);
-    const absolute = path.join(root, nextRelative);
-    if (entry.isDirectory()) {
-      await collectSourceFiles(root, nextRelative, state);
-      continue;
-    }
-    if (!entry.name.endsWith(".mjs")) continue;
-    const logical = normalizeFile(path.posix.join("src", nextRelative.replaceAll("\\", "/")));
-    const resolved = await realpath(absolute);
-    const relativeReal = path.relative(state.realRoot, resolved);
-    if (
-      relativeReal.startsWith("..") ||
-      path.isAbsolute(relativeReal)
-    ) {
-      state.diagnostics.push({
-        file: logical,
-        line: 1,
-        column: 1,
-        code: "IMPORT_REALPATH_ESCAPE"
-      });
-      continue;
-    }
-    state.sources.set(logical, await readFile(resolved, "utf8"));
-  }
-}
-
 export async function auditNoInputProject(options = {}) {
   const srcDir = path.resolve(options.srcDir ?? path.resolve("src"));
-  const state = {
-    sources: new Map(),
-    diagnostics: [],
-    realRoot: await realpath(srcDir)
-  };
-  await collectSourceFiles(srcDir, "", state);
-  const astDiagnostics = auditSourceSet(state.sources, {
+  const project = await collectProjectSources(srcDir);
+  const astDiagnostics = auditSourceSet(project.sources, {
     automatedEntries: options.automatedEntries ?? DEFAULT_AUTOMATED_ENTRIES
   });
   const grepDiagnostics = [];
-  for (const [file, source] of state.sources) {
+  for (const [file, source] of project.sources) {
     grepDiagnostics.push(...grepForbiddenSource(source, file));
   }
   return sortDiagnostics([
-    ...state.diagnostics,
+    ...project.diagnostics,
     ...astDiagnostics,
     ...grepDiagnostics
   ]);

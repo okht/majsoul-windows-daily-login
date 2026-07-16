@@ -22,6 +22,46 @@ function logicalPassiveEdge(source) {
   return new Map([["src/browser/passive-edge.mjs", source]]);
 }
 
+function passiveGuardFixture(guardPlacement) {
+  const guard = `if (
+      url !== TARGET &&
+      !(this.#allowLoopback && isSafeLoopbackTarget(url))
+    ) {
+      throw targetRejected();
+    }`;
+  const before = guardPlacement === "before" ? guard : "";
+  const after = guardPlacement === "after" ? guard : "";
+  return `import { chromium } from "playwright-core";
+const TARGET = "https://game.maj-soul.com/1/";
+function isSafeLoopbackTarget() { return false; }
+function targetRejected() { return new Error("rejected"); }
+export class PassiveEdge {
+  #browser;
+  #allowLoopback;
+  #context;
+  #page;
+  constructor() {
+    this.#browser = chromium;
+    this.#allowLoopback = true;
+  }
+  async open(url) {
+    ${before}
+    this.#context = await this.#browser.launchPersistentContext("profile", {
+      channel: "msedge",
+      headless: true,
+      viewport: { width: 1, height: 1 }
+    });
+    this.#page = this.#context.pages()[0] ?? await this.#context.newPage();
+    await this.#page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 1000
+    });
+    ${after}
+  }
+}
+`;
+}
+
 async function temporaryProject(files) {
   const root = await mkdtemp(path.join(tmpdir(), "majsoul-no-input-"));
   scratch.push(root);
@@ -80,6 +120,37 @@ describe("zero-input AST policy", () => {
     )).toBe(true);
   });
 
+  it("rejects every tainted computed member despite lexical const shadowing", async () => {
+    const diagnostics = auditSourceSet(
+      logicalPassiveEdge(await fixture("shadowed-computed")),
+      { automatedEntries: ["src/browser/passive-edge.mjs"] }
+    );
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_COMPUTED_FORBIDDEN"
+    );
+  });
+
+  it.each([
+    "array-push-handle",
+    "map-set-handle"
+  ])("rejects a raw handle hidden through %s", async (name) => {
+    const diagnostics = auditSourceSet(
+      logicalPassiveEdge(await fixture(name)),
+      { automatedEntries: ["src/browser/passive-edge.mjs"] }
+    );
+    expect(diagnostics.map((entry) => entry.code)).toContain("PW_RAW_ESCAPE");
+  });
+
+  it("rejects an allowed Playwright method extracted as an alias", async () => {
+    const diagnostics = auditSourceSet(
+      logicalPassiveEdge(await fixture("allowed-method-alias")),
+      { automatedEntries: ["src/browser/passive-edge.mjs"] }
+    );
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_MEMBER_REFERENCE"
+    );
+  });
+
   it.each([
     ["dynamic import", "await import(\"playwright-core\");", "DYNAMIC_IMPORT_FORBIDDEN"],
     ["require", "require(\"playwright-core\");", "DYNAMIC_REQUIRE_FORBIDDEN"],
@@ -96,6 +167,17 @@ describe("zero-input AST policy", () => {
     const diagnostics = auditSourceSet(new Map([
       ["src/cli/verify-session.mjs", `import "../safe.mjs";\n${body}\n`],
       ["src/safe.mjs", "export const safe = true;\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(code);
+  });
+
+  it.each([
+    ["global alias", "const root = globalThis; root.eval(\"1\");", "DYNAMIC_GLOBAL_FORBIDDEN"],
+    ["window alias", "const root = window; root[\"eval\"](\"1\");", "DYNAMIC_GLOBAL_FORBIDDEN"],
+    ["indirect eval", "(0, eval)(\"1\");", "DYNAMIC_ESCAPE_FORBIDDEN"]
+  ])("rejects %s capability acquisition", (_name, body, code) => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", body + "\n"]
     ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
     expect(diagnostics.map((entry) => entry.code)).toContain(code);
   });
@@ -136,6 +218,58 @@ describe("zero-input AST policy", () => {
       "SHARP_IMPORT_BOUNDARY",
       "SHARP_IMPORT_SHAPE"
     ]));
+  });
+
+  it("rejects a namespace import of the PassiveEdge wrapper", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import * as Edge from "../browser/passive-edge.mjs";
+new Edge.PassiveEdge({ profileDir: "p", browser: {}, allowLoopback: true });
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_IMPORT_SHAPE"
+    );
+  });
+
+  it("rejects an intermediate re-export of the PassiveEdge wrapper", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { PassiveEdge } from "../edge-wrapper.mjs";
+new PassiveEdge({ profileDir: "p", browser: {}, allowLoopback: true });
+`],
+      ["src/edge-wrapper.mjs", `export { PassiveEdge } from "./browser/passive-edge.mjs";\n`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_REEXPORT_FORBIDDEN"
+    );
+  });
+
+  it.each([
+    "playwright",
+    "playwright-core/lib/server",
+    "@playwright/test",
+    "puppeteer",
+    "puppeteer-core",
+    "selenium-webdriver",
+    "webdriverio",
+    "@wdio/cli"
+  ])("rejects alternate automation package import %s", (packageName) => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/safe.mjs", `import automation from ${JSON.stringify(packageName)};\nvoid automation;\n`]
+    ]), { automatedEntries: ["src/safe.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "AUTOMATION_PACKAGE_FORBIDDEN"
+    );
+  });
+
+  it("rejects an alternate automation package re-export", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/safe.mjs", `export * from "puppeteer";\n`]
+    ]), { automatedEntries: ["src/safe.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "AUTOMATION_PACKAGE_FORBIDDEN"
+    );
   });
 
   it.each([
@@ -179,6 +313,78 @@ describe("zero-input AST policy", () => {
       automatedEntries: ["src/browser/passive-edge.mjs"]
     });
     expect(diagnostics.map((entry) => entry.code)).toContain(code);
+  });
+
+  it.each([
+    ["missing", ""],
+    ["after goto", "after"]
+  ])("rejects an open(url) target guard that is %s", (_label, placement) => {
+    const diagnostics = auditSourceSet(
+      logicalPassiveEdge(passiveGuardFixture(placement)),
+      { automatedEntries: ["src/browser/passive-edge.mjs"] }
+    );
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_NAVIGATION_GUARD"
+    );
+  });
+
+  it("accepts the exact conservative target guard before goto", () => {
+    const diagnostics = auditSourceSet(
+      logicalPassiveEdge(passiveGuardFixture("before")),
+      { automatedEntries: ["src/browser/passive-edge.mjs"] }
+    );
+    expect(diagnostics.map((entry) => entry.code)).not.toContain(
+      "PW_NAVIGATION_GUARD"
+    );
+    expect(diagnostics.map((entry) => entry.code)).not.toContain(
+      "PW_NAVIGATION_UNSAFE"
+    );
+  });
+
+  it.each([
+    [
+      "reassigned after validation",
+      passiveGuardFixture("before").replace(
+        "    this.#context = await",
+        "    url = \"javascript:alert(1)\";\n    this.#context = await"
+      )
+    ],
+    [
+      "shadowed by a nested function",
+      passiveGuardFixture("before").replace(
+        `    await this.#page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 1000
+    });`,
+        `    async function navigate(url) {
+      await this.#page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: 1000
+      });
+    }
+    void navigate;`
+      )
+    ]
+  ])("rejects a guarded URL that is %s", (_label, source) => {
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_NAVIGATION_GUARD"
+    );
+  });
+
+  it("rejects a literal unsafe PassiveEdge.open call in the automated graph", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { PassiveEdge } from "../browser/passive-edge.mjs";
+const edge = new PassiveEdge({ profileDir: "p", headless: true });
+edge.open("javascript:alert(1)");
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_OPEN_UNSAFE"
+    );
   });
 
   it.each([
@@ -230,6 +436,25 @@ describe("zero-input AST policy", () => {
       ]));
     expect(grepForbiddenSource("const b = Buffer.alloc(4); b.fill(0);", "safe.mjs"))
       .toEqual([]);
+  });
+
+  it.each([
+    "direct-click",
+    "optional-click",
+    "bracket-click",
+    "escaped-click",
+    "concatenated-click",
+    "const-key-click",
+    "select",
+    "drag"
+  ])("independent source grep rejects seeded form %s", async (name) => {
+    const diagnostics = grepForbiddenSource(
+      await fixture(name),
+      `${name}.mjs`
+    );
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "SOURCE_INPUT_TOKEN"
+    );
   });
 
   it("realpath-checks source roots and rejects a symlink escape", async () => {

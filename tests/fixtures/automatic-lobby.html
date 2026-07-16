@@ -1,4 +1,4 @@
-+<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -81,7 +81,10 @@
 
       for (const type of eventTypes) {
         document.addEventListener(type, (event) => {
-          if (armed && !ignoredFocus(event)) counts[type] += 1;
+          if (armed && !ignoredFocus(event)) {
+            counts[type] += 1;
+            publish();
+          }
         }, true);
       }
 
@@ -115,6 +118,16 @@
             }));
           }
           publish();
+          const lateSeed = new URL(location.href).searchParams.get("lateSeed");
+          if (eventTypes.includes(lateSeed)) {
+            setTimeout(() => {
+              seedTarget(lateSeed).dispatchEvent(new Event(lateSeed, {
+                bubbles: true,
+                cancelable: true,
+                composed: true
+              }));
+            }, 250);
+          }
         }));
       }, { once: true });
     })();
