@@ -16,6 +16,12 @@ function sessionNotOpen() {
   return error;
 }
 
+function sessionAlreadyOpen() {
+  const error = new Error("The passive browser session is already open.");
+  error.code = "BROWSER_SESSION_ALREADY_OPEN";
+  return error;
+}
+
 function isSafeLoopbackTarget(value) {
   if (
     typeof value !== "string" ||
@@ -60,6 +66,7 @@ export class PassiveEdge {
   }
 
   async open(url) {
+    if (this.#context || this.#page) throw sessionAlreadyOpen();
     if (
       url !== TARGET &&
       !(this.#allowLoopback && isSafeLoopbackTarget(url))

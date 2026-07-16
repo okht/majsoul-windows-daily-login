@@ -106,16 +106,20 @@ describe("verifyStoredSession", () => {
       vi.spyOn(console, method).mockImplementation(() => {})
     );
 
-    await expect(verifyStoredSession(value.dependencies)).resolves.toEqual({
-      status: "TRANSIENT_ERROR",
-      reasonCode: "SESSION_VERIFICATION_FAILED",
-      exitCode: 2
-    });
+    try {
+      await expect(verifyStoredSession(value.dependencies)).resolves.toEqual({
+        status: "TRANSIENT_ERROR",
+        reasonCode: "SESSION_VERIFICATION_FAILED",
+        exitCode: 2
+      });
 
-    expect(value.close).toHaveBeenCalledOnce();
-    expect(consoleSpies.every((spy) => spy.mock.calls.length === 0)).toBe(true);
-    expect(JSON.stringify(consoleSpies.flatMap((spy) => spy.mock.calls)))
-      .not.toContain(secret);
+      expect(value.close).toHaveBeenCalledOnce();
+      expect(consoleSpies.every((spy) => spy.mock.calls.length === 0)).toBe(true);
+      expect(JSON.stringify(consoleSpies.flatMap((spy) => spy.mock.calls)))
+        .not.toContain(secret);
+    } finally {
+      for (const spy of consoleSpies) spy.mockRestore();
+    }
   });
 
   it("closes the session when navigation fails", async () => {

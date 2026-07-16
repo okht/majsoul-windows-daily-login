@@ -116,6 +116,20 @@ describe("PassiveEdge", () => {
     expect(context.close).toHaveBeenCalledOnce();
   });
 
+  it("rejects a repeated open before launching and preserves the first context", async () => {
+    const { browser, context } = browserFixture();
+    const edge = new PassiveEdge({ profileDir: "profile", browser });
+
+    await edge.open(TARGET);
+    await expect(edge.open(TARGET)).rejects.toMatchObject({
+      code: "BROWSER_SESSION_ALREADY_OPEN"
+    });
+
+    expect(browser.launchPersistentContext).toHaveBeenCalledOnce();
+    await edge.close();
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
   it("exposes exactly four methods and no Playwright handles", async () => {
     const { browser } = browserFixture();
     const edge = new PassiveEdge({ profileDir: "profile", browser });

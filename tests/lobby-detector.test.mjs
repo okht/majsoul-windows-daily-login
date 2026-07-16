@@ -34,22 +34,6 @@ function guardedSession(text = "Lobby", frameCount = 20) {
   return { session, metadata, frame };
 }
 
-function options(scores, overrides = {}) {
-  const timer = clock();
-  return {
-    timer,
-    scoreFrame: vi.fn(async () => scores.shift()),
-    value: {
-      now: timer.now,
-      sleep: timer.sleep,
-      scoreFrame: undefined,
-      deadlineMs: 20_000,
-      intervalMs: 5_000,
-      ...overrides
-    }
-  };
-}
-
 describe("detectLobby", () => {
   it.each([
     "登录",
@@ -61,13 +45,16 @@ describe("detectLobby", () => {
     "I agree"
   ])("returns manual action immediately for accessible marker %s", async (text) => {
     const { session, frame } = guardedSession(text);
+    const timer = clock();
     const scoreFrame = vi.fn();
 
     await expect(
       detectLobby(session, {}, () => "token", {
-        now: () => 0,
-        sleep: vi.fn(),
-        scoreFrame
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame,
+        deadlineMs: 5_000,
+        intervalMs: 5_000
       })
     ).resolves.toEqual({
       status: "MANUAL_ACTION_REQUIRED",
@@ -332,6 +319,7 @@ describe("detectLobby", () => {
 
   it("checks normalized title text for a manual marker", async () => {
     const { session, frame, metadata } = guardedSession("Lobby");
+    const timer = clock();
     metadata.mockResolvedValueOnce({
       url: "https://game.maj-soul.com/1/",
       title: "  Please   verify  ",
@@ -340,9 +328,11 @@ describe("detectLobby", () => {
 
     await expect(
       detectLobby(session, {}, () => "token", {
-        now: () => 0,
-        sleep: vi.fn(),
-        scoreFrame: vi.fn()
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame: vi.fn(async () => 0),
+        deadlineMs: 5_000,
+        intervalMs: 5_000
       })
     ).resolves.toEqual({
       status: "MANUAL_ACTION_REQUIRED",
@@ -384,24 +374,30 @@ describe("detectLobby", () => {
       code: "SCORE_FAILED"
     });
     const first = guardedSession();
+    const firstTimer = clock();
     first.frame.mockRejectedValueOnce(frameError);
 
     await expect(
       detectLobby(first.session, {}, () => "token", {
-        now: () => 0,
-        sleep: vi.fn(),
-        scoreFrame: vi.fn()
+        now: firstTimer.now,
+        sleep: firstTimer.sleep,
+        scoreFrame: vi.fn(),
+        deadlineMs: 5_000,
+        intervalMs: 5_000
       })
     ).rejects.toBe(frameError);
 
     const second = guardedSession();
+    const secondTimer = clock();
     await expect(
       detectLobby(second.session, {}, () => "token", {
-        now: () => 0,
-        sleep: vi.fn(),
+        now: secondTimer.now,
+        sleep: secondTimer.sleep,
         scoreFrame: vi.fn(async () => {
           throw scoreError;
-        })
+        }),
+        deadlineMs: 5_000,
+        intervalMs: 5_000
       })
     ).rejects.toBe(scoreError);
   });
