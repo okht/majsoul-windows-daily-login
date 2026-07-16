@@ -1,0 +1,41 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials/
+secrets/
+config.local.*
+
+# Runtime state and logs
+.runtime/
+state/
+logs/
+screenshots/
+*.log
+
+# Dedicated browser data
+edge-profile/
+browser-profile/
+user-data-dir/
+**/Cookies
+**/Cookies-journal
+**/Login Data
+**/Login Data-journal
+**/Local State
+**/Web Data
+**/History
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
