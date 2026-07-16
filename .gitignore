@@ -34,6 +34,7 @@ user-data-dir/
 **/History
 
 # Editors and operating systems
+.worktrees/
 .idea/
 .vscode/
 .DS_Store
