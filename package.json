@@ -7,9 +7,10 @@
     "node": ">=22"
   },
   "scripts": {
+    "check:no-input": "node scripts/check-no-input.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm test"
+    "verify": "npm test && npm run check:no-input"
   },
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",
@@ -19,6 +20,8 @@
     "sharp": "0.35.3"
   },
   "devDependencies": {
+    "acorn": "8.17.0",
+    "acorn-walk": "8.3.5",
     "vitest": "4.1.10"
   }
 }

@@ -11,7 +11,10 @@ function defaultDependencies() {
   return {
     paths: appPaths(),
     readFingerprintRecord,
-    createSession: (options) => new PassiveEdge(options),
+    createSession: ({ profileDir, headless }) => new PassiveEdge({
+      profileDir,
+      headless
+    }),
     withFingerprintTokenizer,
     detectLobby
   };
