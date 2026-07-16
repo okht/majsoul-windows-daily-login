@@ -7,7 +7,10 @@ function clock() {
     now: vi.fn(() => current),
     sleep: vi.fn(async (milliseconds) => {
       current += milliseconds;
-    })
+    }),
+    advance(milliseconds) {
+      current += milliseconds;
+    }
   };
 }
 
@@ -75,6 +78,53 @@ describe("detectLobby", () => {
     expect(scoreFrame).not.toHaveBeenCalled();
   });
 
+  it("detects a real login prompt on a long accessible-text line", async () => {
+    const text = "status ".repeat(20) + "Login to continue";
+    const { session, frame } = guardedSession(text);
+    const timer = clock();
+
+    await expect(
+      detectLobby(session, {}, () => "token", {
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame: vi.fn(async () => 0),
+        deadlineMs: 5_000,
+        intervalMs: 5_000
+      })
+    ).resolves.toEqual({
+      status: "MANUAL_ACTION_REQUIRED",
+      reasonCode: "ACCESSIBLE_MANUAL_MARKER"
+    });
+
+    expect(frame).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "Daily login reward. Login to continue",
+    "每日登录奖励。请登录以继续",
+    "每日登錄獎勵。請登入以繼續"
+  ])("strips only the reward label and still detects the real prompt: %s", async (
+    text
+  ) => {
+    const { session, frame } = guardedSession(text);
+    const timer = clock();
+
+    await expect(
+      detectLobby(session, {}, () => "token", {
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame: vi.fn(async () => 0),
+        deadlineMs: 5_000,
+        intervalMs: 5_000
+      })
+    ).resolves.toEqual({
+      status: "MANUAL_ACTION_REQUIRED",
+      reasonCode: "ACCESSIBLE_MANUAL_MARKER"
+    });
+
+    expect(frame).not.toHaveBeenCalled();
+  });
+
   it("requires exactly three consecutive scores at the fixed threshold", async () => {
     const { session, frame } = guardedSession();
     const timer = clock();
@@ -137,6 +187,86 @@ describe("detectLobby", () => {
     });
 
     expect(frame).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops after metadata crosses the deadline without reading a frame", async () => {
+    const { session, metadata, frame } = guardedSession();
+    const timer = clock();
+    metadata.mockImplementationOnce(async () => {
+      timer.advance(10_000);
+      return { title: "Mahjong Soul", text: "Lobby" };
+    });
+
+    await expect(
+      detectLobby(session, {}, () => "token", {
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame: vi.fn(async () => 0.95),
+        deadlineMs: 10_000,
+        intervalMs: 5_000
+      })
+    ).resolves.toEqual({
+      status: "MANUAL_ACTION_REQUIRED",
+      reasonCode: "LOBBY_UNCONFIRMED"
+    });
+
+    expect(frame).not.toHaveBeenCalled();
+  });
+
+  it("clears a frame that arrives at the deadline without scoring it", async () => {
+    const { session, frame } = guardedSession();
+    const timer = clock();
+    const ownedFrame = Buffer.from("owned-frame");
+    frame.mockImplementationOnce(async () => {
+      timer.advance(10_000);
+      return ownedFrame;
+    });
+    const scoreFrame = vi.fn(async () => 0.95);
+
+    await expect(
+      detectLobby(session, {}, () => "token", {
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame,
+        deadlineMs: 10_000,
+        intervalMs: 5_000
+      })
+    ).resolves.toEqual({
+      status: "MANUAL_ACTION_REQUIRED",
+      reasonCode: "LOBBY_UNCONFIRMED"
+    });
+
+    expect(scoreFrame).not.toHaveBeenCalled();
+    expect(ownedFrame.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("does not accept the third high score when scoring reaches the deadline", async () => {
+    const { session, frame } = guardedSession();
+    const timer = clock();
+    const scoreFrame = vi
+      .fn()
+      .mockResolvedValueOnce(0.95)
+      .mockResolvedValueOnce(0.95)
+      .mockImplementationOnce(async () => {
+        timer.advance(2_000);
+        return 0.95;
+      });
+
+    await expect(
+      detectLobby(session, {}, () => "token", {
+        now: timer.now,
+        sleep: timer.sleep,
+        scoreFrame,
+        deadlineMs: 12_000,
+        intervalMs: 5_000
+      })
+    ).resolves.toEqual({
+      status: "MANUAL_ACTION_REQUIRED",
+      reasonCode: "LOBBY_UNCONFIRMED"
+    });
+
+    expect(frame).toHaveBeenCalledTimes(3);
+    expect(scoreFrame).toHaveBeenCalledTimes(3);
   });
 
   it("treats unknown scores as unconfirmed instead of success", async () => {

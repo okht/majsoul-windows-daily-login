@@ -7,15 +7,14 @@ import {
 const DEFAULT_DEADLINE_MS = 180_000;
 const DEFAULT_INTERVAL_MS = 5_000;
 const REQUIRED_CONSECUTIVE_MATCHES = 3;
-const MAX_MARKER_LINE_LENGTH = 80;
 
 const ENGLISH_MANUAL_MARKER =
   /\b(?:captcha|confirm|consent|log\s*in|login|sign\s*in|verification|verify)\b|^i\s+agree$/i;
 const CHINESE_VERIFICATION_MARKER = /(?:安全)?(?:验证|驗證)(?:码|碼)?/u;
 const CHINESE_CONFIRMATION_MARKER = /(?:确认|確認|同意|接受|授权|授權)/u;
 const CHINESE_LOGIN_MARKER = /(?:登录|登錄|登入)(?:游戏|遊戲)?/u;
-const LOGIN_REWARD_CONTEXT =
-  /(?=.*(?:登录|登錄|登入|log\s*in|login))(?=.*(?:奖励|獎勵|reward))/iu;
+const LOGIN_REWARD_LABEL =
+  /(?:每日)?(?:登录|登錄|登入)(?:奖励|獎勵)|(?:daily\s+)?login\s+reward/giu;
 
 function defaultSleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -25,9 +24,11 @@ function accessibleManualMarker(text) {
   if (typeof text !== "string") return false;
 
   return text.split(/\r?\n/u).some((rawLine) => {
-    const line = rawLine.trim().replace(/\s+/gu, " ");
-    if (!line || [...line].length > MAX_MARKER_LINE_LENGTH) return false;
-    if (LOGIN_REWARD_CONTEXT.test(line)) return false;
+    const line = rawLine
+      .replace(LOGIN_REWARD_LABEL, " ")
+      .trim()
+      .replace(/\s+/gu, " ");
+    if (!line) return false;
     return (
       ENGLISH_MANUAL_MARKER.test(line) ||
       CHINESE_VERIFICATION_MARKER.test(line) ||
@@ -51,9 +52,16 @@ export async function detectLobby(
 
   const startedAt = now();
   let consecutiveMatches = 0;
+  const deadlineReached = () => now() - startedAt >= deadlineMs;
+  const unconfirmed = () => ({
+    status: "MANUAL_ACTION_REQUIRED",
+    reasonCode: "LOBBY_UNCONFIRMED"
+  });
 
-  while (now() - startedAt < deadlineMs) {
+  while (!deadlineReached()) {
     const metadata = await session.metadata();
+    if (deadlineReached()) return unconfirmed();
+
     const accessibleText = [metadata?.title, metadata?.text]
       .filter((value) => typeof value === "string")
       .join("\n");
@@ -65,12 +73,18 @@ export async function detectLobby(
     }
 
     const frame = await session.frame();
+    if (deadlineReached()) {
+      if (Buffer.isBuffer(frame)) frame.fill(0);
+      return unconfirmed();
+    }
+
     let score;
     try {
       score = await scoreFrame(frame, record, tokenizer);
     } finally {
       if (Buffer.isBuffer(frame)) frame.fill(0);
     }
+    if (deadlineReached()) return unconfirmed();
 
     if (
       Number.isFinite(score) &&
@@ -89,8 +103,5 @@ export async function detectLobby(
     await sleep(Math.min(intervalMs, remaining));
   }
 
-  return {
-    status: "MANUAL_ACTION_REQUIRED",
-    reasonCode: "LOBBY_UNCONFIRMED"
-  };
+  return unconfirmed();
 }
