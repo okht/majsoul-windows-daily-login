@@ -138,6 +138,117 @@ describe("state-store", () => {
     });
   });
 
+  it("preserves existing top-level values when patch fields are undefined", async () => {
+    const { paths } = await temporaryPaths();
+    const dateKey = "2026-07-16";
+
+    await writeState(dateKey, {
+      status: "FAILED_TRANSIENT",
+      attempts: 2,
+      errorKind: "NETWORK"
+    }, paths);
+
+    await writeState(dateKey, {
+      status: undefined,
+      attempts: undefined,
+      errorKind: undefined,
+      absentField: undefined
+    }, paths);
+
+    const stored = await readState(dateKey, paths);
+    expect(stored).toMatchObject({
+      status: "FAILED_TRANSIENT",
+      attempts: 2,
+      errorKind: "NETWORK"
+    });
+    expect(stored).not.toHaveProperty("absentField");
+  });
+
+  it("preserves the whole notification when its patch is undefined", async () => {
+    const { paths } = await temporaryPaths();
+    const dateKey = "2026-07-16";
+    const notification = {
+      fingerprint: "undefined-notification-test",
+      status: "PENDING",
+      attempts: 1
+    };
+
+    await writeState(dateKey, {
+      status: "FAILED_TRANSIENT",
+      notification
+    }, paths);
+    await writeState(dateKey, {
+      status: "BLOCKED_MANUAL",
+      notification: undefined
+    }, paths);
+
+    expect(await readState(dateKey, paths)).toMatchObject({
+      status: "BLOCKED_MANUAL",
+      notification
+    });
+  });
+
+  it("preserves nested notification values when patch fields are undefined", async () => {
+    const { paths } = await temporaryPaths();
+    const dateKey = "2026-07-16";
+
+    await writeState(dateKey, {
+      status: "FAILED_TRANSIENT",
+      notification: {
+        fingerprint: "nested-undefined-test",
+        status: "PENDING",
+        attempts: 2
+      }
+    }, paths);
+    await writeState(dateKey, {
+      notification: {
+        status: undefined,
+        attempts: undefined,
+        lastAttemptAt: "2026-07-16T02:02:00.000Z"
+      }
+    }, paths);
+
+    expect(await readState(dateKey, paths)).toMatchObject({
+      notification: {
+        fingerprint: "nested-undefined-test",
+        status: "PENDING",
+        attempts: 2,
+        lastAttemptAt: "2026-07-16T02:02:00.000Z"
+      }
+    });
+  });
+
+  it.each([
+    ["null", null],
+    ["an array", []],
+    ["a string", "clear"],
+    ["a number", 1],
+    ["a Date", new Date("2026-07-16T00:00:00.000Z")]
+  ])("rejects notification patch value %s", async (_label, notification) => {
+    const { paths } = await temporaryPaths();
+    const dateKey = "2026-07-16";
+    const original = {
+      fingerprint: "invalid-patch-test",
+      status: "PENDING",
+      attempts: 1
+    };
+
+    await writeState(dateKey, {
+      status: "FAILED_TRANSIENT",
+      notification: original
+    }, paths);
+
+    await expect(writeState(dateKey, { notification }, paths)).rejects.toMatchObject({
+      name: "TypeError",
+      code: "INVALID_STATE_PATCH",
+      message: "notification patch must be a record when provided."
+    });
+    expect(await readState(dateKey, paths)).toMatchObject({
+      status: "FAILED_TRANSIENT",
+      notification: original
+    });
+  });
+
   it("quarantines invalid JSON without exposing its contents", async () => {
     const { paths } = await temporaryPaths();
     const dateKey = "2026-07-16";

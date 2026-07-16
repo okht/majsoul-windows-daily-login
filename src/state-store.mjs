@@ -41,18 +41,37 @@ function stateFile(dateKey, paths) {
 }
 
 function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function definedEntries(record) {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined)
+  );
+}
+
+function invalidStatePatch() {
+  const error = new TypeError("notification patch must be a record when provided.");
+  error.code = "INVALID_STATE_PATCH";
+  return error;
 }
 
 function mergeState(existing, update) {
-  const merged = { ...existing, ...update };
-  if (isRecord(existing.notification) && isRecord(update.notification)) {
-    merged.notification = {
-      ...existing.notification,
-      ...update.notification
+  const patch = definedEntries(update);
+
+  if (Object.hasOwn(patch, "notification")) {
+    if (!isRecord(patch.notification)) throw invalidStatePatch();
+    patch.notification = {
+      ...(isRecord(existing.notification) ? existing.notification : {}),
+      ...definedEntries(patch.notification)
     };
   }
-  return merged;
+
+  return { ...existing, ...patch };
 }
 
 async function quarantineCorruptState(file) {
