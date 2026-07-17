@@ -57,6 +57,8 @@ function isAbsoluteSpecifier(specifier) {
   return (
     specifier.startsWith("/") ||
     specifier.startsWith("file:") ||
+    (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(specifier) &&
+      !specifier.startsWith("node:")) ||
     /^[A-Za-z]:[\\/]/u.test(specifier)
   );
 }
@@ -107,6 +109,12 @@ export function buildAutomatedGraph(
       sources.get(file)
     )) {
       if (typeof value !== "string") continue;
+      if (value.startsWith("#")) {
+        diagnostics.push(
+          diagnostic(file, node, "IMPORT_ALIAS_FORBIDDEN")
+        );
+        continue;
+      }
       if (isAbsoluteSpecifier(value)) {
         diagnostics.push(diagnostic(file, node, "IMPORT_ABSOLUTE"));
         continue;

@@ -155,6 +155,13 @@ describe("zero-input AST policy", () => {
     ["dynamic import", "await import(\"playwright-core\");", "DYNAMIC_IMPORT_FORBIDDEN"],
     ["require", "require(\"playwright-core\");", "DYNAMIC_REQUIRE_FORBIDDEN"],
     ["createRequire", "createRequire(import.meta.url);", "DYNAMIC_REQUIRE_FORBIDDEN"],
+    [
+      "Module.createRequire alias",
+      `import Module from "node:module";
+const req = Module.createRequire(import.meta.url);
+req("playwright");`,
+      "DYNAMIC_REQUIRE_FORBIDDEN"
+    ],
     ["eval", "eval(\"1\");", "DYNAMIC_ESCAPE_FORBIDDEN"],
     ["Function", "Function(\"return 1\")();", "DYNAMIC_ESCAPE_FORBIDDEN"],
     ["Reflect.get", "Reflect.get({}, \"x\");", "DYNAMIC_ESCAPE_FORBIDDEN"],
@@ -162,7 +169,33 @@ describe("zero-input AST policy", () => {
     ["descriptor", "Object.getOwnPropertyDescriptor({}, \"x\");", "DYNAMIC_ESCAPE_FORBIDDEN"],
     ["builtin module", "process.getBuiltinModule(\"fs\");", "DYNAMIC_ESCAPE_FORBIDDEN"],
     ["aliased reflection", "const getter = Reflect.get; getter({}, \"x\");", "DYNAMIC_ESCAPE_FORBIDDEN"],
-    ["aliased eval", "const execute = eval; execute(\"1\");", "DYNAMIC_ESCAPE_FORBIDDEN"]
+    ["aliased eval", "const execute = eval; execute(\"1\");", "DYNAMIC_ESCAPE_FORBIDDEN"],
+    [
+      "indirect Function constructor",
+      `const F = (() => {}).constructor;
+F("return globalThis")();`,
+      "DYNAMIC_ESCAPE_FORBIDDEN"
+    ],
+    [
+      "aliased process builtin acquisition",
+      `const runtime = process;
+const Module = runtime.getBuiltinModule("module");
+void Module;`,
+      "DYNAMIC_ESCAPE_FORBIDDEN"
+    ],
+    [
+      "destructured process builtin acquisition",
+      `const { getBuiltinModule } = process;
+const Module = getBuiltinModule("module");
+void Module;`,
+      "DYNAMIC_ESCAPE_FORBIDDEN"
+    ],
+    [
+      "destructured Function constructor",
+      `const { constructor: F } = (() => {});
+F("return globalThis")();`,
+      "DYNAMIC_ESCAPE_FORBIDDEN"
+    ]
   ])("rejects %s anywhere in the automated graph", (_name, body, code) => {
     const diagnostics = auditSourceSet(new Map([
       ["src/cli/verify-session.mjs", `import "../safe.mjs";\n${body}\n`],
@@ -186,6 +219,8 @@ describe("zero-input AST policy", () => {
     ["../../outside.mjs", "IMPORT_TRAVERSAL"],
     ["file:///C:/outside.mjs", "IMPORT_ABSOLUTE"],
     ["C:/outside.mjs", "IMPORT_ABSOLUTE"],
+    ["data:text/javascript,globalThis.compromised=true", "IMPORT_ABSOLUTE"],
+    ["#unsafe", "IMPORT_ALIAS_FORBIDDEN"],
     ["../safe.mjs?raw", "IMPORT_SUFFIX_FORBIDDEN"],
     ["../safe.mjs#hash", "IMPORT_SUFFIX_FORBIDDEN"],
     ["../missing.mjs", "IMPORT_MISSING"]
@@ -238,6 +273,77 @@ new Edge.PassiveEdge({ profileDir: "p", browser: {}, allowLoopback: true });
 new PassiveEdge({ profileDir: "p", browser: {}, allowLoopback: true });
 `],
       ["src/edge-wrapper.mjs", `export { PassiveEdge } from "./browser/passive-edge.mjs";\n`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_REEXPORT_FORBIDDEN"
+    );
+  });
+
+  it("rejects a locally imported PassiveEdge wrapper re-export", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { PassiveEdge } from "../edge-wrapper.mjs";
+new PassiveEdge({ profileDir: "p", headless: true });
+`],
+      ["src/edge-wrapper.mjs", `import { PassiveEdge } from "./browser/passive-edge.mjs";
+export { PassiveEdge };
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_REEXPORT_FORBIDDEN"
+    );
+  });
+
+  it("rejects a PassiveEdge export declaration alias", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { Edge } from "../edge-wrapper.mjs";
+new Edge({ profileDir: "p", headless: true });
+`],
+      ["src/edge-wrapper.mjs", `import { PassiveEdge } from "./browser/passive-edge.mjs";
+export const Edge = PassiveEdge;
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_REEXPORT_FORBIDDEN"
+    );
+  });
+
+  it("rejects a locally aliased PassiveEdge re-export", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { Edge } from "../edge-wrapper.mjs";
+new Edge({ profileDir: "p", headless: true });
+`],
+      ["src/edge-wrapper.mjs", `import { PassiveEdge } from "./browser/passive-edge.mjs";
+const Edge = PassiveEdge;
+export { Edge };
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_REEXPORT_FORBIDDEN"
+    );
+  });
+
+  it.each([
+    [
+      "container assignment",
+      `const box = {};
+box.Edge = PassiveEdge;
+export { box };`
+    ],
+    [
+      "exported getter function",
+      `function getEdge() { return PassiveEdge; }
+export { getEdge };`
+    ]
+  ])("rejects PassiveEdge escape through %s", (_label, wrapperBody) => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", "import '../edge-wrapper.mjs';\n"],
+      ["src/edge-wrapper.mjs", `import { PassiveEdge } from "./browser/passive-edge.mjs";
+${wrapperBody}
+`],
       ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
     ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
     expect(diagnostics.map((entry) => entry.code)).toContain(
@@ -374,6 +480,122 @@ new PassiveEdge({ profileDir: "p", browser: {}, allowLoopback: true });
     );
   });
 
+  it.each([
+    ["TARGET", "const TARGET = url;"],
+    [
+      "isSafeLoopbackTarget",
+      "const isSafeLoopbackTarget = () => true;"
+    ]
+  ])("rejects a guard with a method-local %s binding", (_name, declaration) => {
+    const source = passiveGuardFixture("before").replace(
+      "  async open(url) {",
+      `  async open(url) {\n    ${declaration}`
+    );
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_NAVIGATION_GUARD"
+    );
+  });
+
+  it.each([
+    [
+      "conditionally nested throw",
+      passiveGuardFixture("before").replace(
+        "throw targetRejected();",
+        "if (false) throw targetRejected();"
+      )
+    ],
+    [
+      "caught throw",
+      passiveGuardFixture("before").replace(
+        "throw targetRejected();",
+        "try { throw targetRejected(); } catch {}"
+      )
+    ],
+    [
+      "block-shadowed URL",
+      passiveGuardFixture("before").replace(
+        "    await this.#page.goto(url, {",
+        `    {
+      const url = "javascript:alert(1)";
+      await this.#page.goto(url, {`
+      ).replace(
+        `      timeout: 1000
+    });`,
+        `      timeout: 1000
+      });
+    }`
+      )
+    ],
+    [
+      "destructuring reassignment",
+      passiveGuardFixture("before").replace(
+        "    this.#context = await",
+        `    ({ url } = { url: "javascript:alert(1)" });
+    this.#context = await`
+      )
+    ],
+    [
+      "nested closure reassignment",
+      passiveGuardFixture("before").replace(
+        "    this.#context = await",
+        `    const mutate = () => { url = "javascript:alert(1)"; };
+    mutate();
+    this.#context = await`
+      )
+    ],
+    [
+      "for-in reassignment",
+      passiveGuardFixture("before").replace(
+        "    this.#context = await",
+        `    for (url in { "javascript:alert(1)": 1 }) {}
+    this.#context = await`
+      )
+    ],
+    [
+      "top-level helper for-of reassignment",
+      passiveGuardFixture("before").replace(
+        "export class PassiveEdge",
+        `for (isSafeLoopbackTarget of [() => true]) {}
+export class PassiveEdge`
+      )
+    ]
+  ])("rejects a guard with a %s", (_label, source) => {
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_NAVIGATION_GUARD"
+    );
+  });
+
+  it("rejects a class-expression name that shadows the guarded URL", () => {
+    const source = passiveGuardFixture("before").replace(
+      `    await this.#page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 1000
+    });`,
+      `    const page = this.#page;
+    const Container = class url {
+      static {
+        page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 1000
+        });
+      }
+    };
+    void Container;`
+    );
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_NAVIGATION_GUARD"
+    );
+  });
+
   it("rejects a literal unsafe PassiveEdge.open call in the automated graph", () => {
     const diagnostics = auditSourceSet(new Map([
       ["src/cli/verify-session.mjs", `import { PassiveEdge } from "../browser/passive-edge.mjs";
@@ -384,6 +606,37 @@ edge.open("javascript:alert(1)");
     ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
     expect(diagnostics.map((entry) => entry.code)).toContain(
       "PASSIVE_EDGE_OPEN_UNSAFE"
+    );
+  });
+
+  it("tracks PassiveEdge constructor and instance aliases", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { PassiveEdge } from "../browser/passive-edge.mjs";
+const Edge = PassiveEdge;
+const edge = new Edge({ profileDir: "p", allowLoopback: true });
+const alias = edge;
+alias.open("javascript:alert(1)");
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining([
+        "PASSIVE_EDGE_CONSTRUCTOR",
+        "PASSIVE_EDGE_OPEN_UNSAFE"
+      ])
+    );
+  });
+
+  it("tracks PassiveEdge subclasses", () => {
+    const diagnostics = auditSourceSet(new Map([
+      ["src/cli/verify-session.mjs", `import { PassiveEdge } from "../browser/passive-edge.mjs";
+class Edge extends PassiveEdge {}
+new Edge({ profileDir: "p", allowLoopback: true });
+`],
+      ["src/browser/passive-edge.mjs", "export class PassiveEdge {}\n"]
+    ]), { automatedEntries: ["src/cli/verify-session.mjs"] });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PASSIVE_EDGE_CONSTRUCTOR"
     );
   });
 
@@ -406,6 +659,137 @@ edge.open("javascript:alert(1)");
     });
     expect(diagnostics.filter((entry) => entry.code === "PW_RAW_ESCAPE"))
       .toHaveLength(2);
+  });
+
+  it("rejects a tainted handle hidden inside a spread argument", () => {
+    const source = `import { chromium } from "playwright-core";
+const context = await chromium.launchPersistentContext("p", {});
+const page = context.pages()[0];
+consume(...[page]);
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain("PW_RAW_ESCAPE");
+  });
+
+  it("propagates taint through an arbitrarily deep reverse alias chain", () => {
+    const aliases = [];
+    for (let index = 14; index >= 2; index -= 1) {
+      aliases.push(`const a${index} = a${index - 1};`);
+    }
+    aliases.push("const a1 = page;");
+    const source = `import { chromium } from "playwright-core";
+const context = await chromium.launchPersistentContext("p", {});
+const page = context.pages()[0];
+${aliases.join("\n")}
+a14.click();
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_MEMBER_FORBIDDEN"
+    );
+  });
+
+  it.each([
+    [
+      "sequence expression alias",
+      `const p = (0, page);
+p.click();`,
+      "PW_MEMBER_FORBIDDEN"
+    ],
+    ["constructor argument", "new Sink(page);", "PW_RAW_ESCAPE"],
+    ["tagged template interpolation", "sink`${page}`;", "PW_RAW_ESCAPE"],
+    ["named export declaration", "export const exposed = page;", "PW_RAW_ESCAPE"],
+    ["throw expression", "throw page;", "PW_RAW_ESCAPE"],
+    [
+      "yield expression",
+      "function* leak() { yield page; }\nvoid leak;",
+      "PW_RAW_ESCAPE"
+    ]
+  ])("rejects a raw handle through %s", (_label, statement, code) => {
+    const source = `import { chromium } from "playwright-core";
+const context = await chromium.launchPersistentContext("p", {});
+const page = context.pages()[0];
+function Sink() {}
+function sink() {}
+${statement}
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(code);
+  });
+
+  it("propagates taint through a for-of binding", () => {
+    const source = `import { chromium } from "playwright-core";
+const context = await chromium.launchPersistentContext("p", {});
+for (const page of context.pages()) {
+  page.click();
+}
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_MEMBER_FORBIDDEN"
+    );
+  });
+
+  it("propagates taint from a private class field initializer", () => {
+    const source = `import { chromium } from "playwright-core";
+class Session {
+  #engine = chromium;
+  async run() {
+    const context = await this.#engine.launchPersistentContext("p", {});
+    const page = context.pages()[0];
+    page.click();
+  }
+}
+void Session;
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain(
+      "PW_MEMBER_FORBIDDEN"
+    );
+  });
+
+  it("rejects assignment into an exported binding", () => {
+    const source = `import { chromium } from "playwright-core";
+const context = await chromium.launchPersistentContext("p", {});
+const page = context.pages()[0];
+export let exposed;
+exposed = page;
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toContain("PW_RAW_ESCAPE");
+  });
+
+  it("propagates a for-of handle into a private field", () => {
+    const source = `import { chromium } from "playwright-core";
+class Session {
+  #view;
+  async run() {
+    const context = await chromium.launchPersistentContext("p", {});
+    for (this.#view of context.pages()) {
+      this.#view.click();
+    }
+  }
+}
+void Session;
+`;
+    const diagnostics = auditSourceSet(logicalPassiveEdge(source), {
+      automatedEntries: ["src/browser/passive-edge.mjs"]
+    });
+    expect(diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining(["PW_RAW_ESCAPE", "PW_MEMBER_FORBIDDEN"])
+    );
   });
 
   it("passes current source, ordinary indexing, PNG options, and Buffer zeroing", async () => {
@@ -436,6 +820,17 @@ edge.open("javascript:alert(1)");
       ]));
     expect(grepForbiddenSource("const b = Buffer.alloc(4); b.fill(0);", "safe.mjs"))
       .toEqual([]);
+  });
+
+  it.each([
+    ["comment-separated member", "page/*gap*/.click()"],
+    ["semicolonless const-key member", "const key = 'click'\npage[key]()"],
+    ["commented const-key member", "const key = 'click' // comment\npage[key]()"],
+    ["line-comment marker inside a string", `const u = "http://example"; page.click()`],
+    ["block-comment markers inside strings", `const a = "/*"; page.click(); const b = "*/";`]
+  ])("source grep rejects a %s", (_label, source) => {
+    expect(grepForbiddenSource(source, "obfuscated.mjs").map((entry) => entry.code))
+      .toContain("SOURCE_INPUT_TOKEN");
   });
 
   it.each([

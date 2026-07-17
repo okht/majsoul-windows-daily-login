@@ -318,17 +318,82 @@ function isExactTargetGuard(node, urlName) {
   ) {
     return false;
   }
-  let throws = false;
-  walk.simple(node.consequent, {
-    ThrowStatement() {
-      throws = true;
-    }
-  });
-  return throws;
+  return (
+    node.alternate == null &&
+    node.consequent.type === "BlockStatement" &&
+    node.consequent.body.length === 1 &&
+    node.consequent.body[0].type === "ThrowStatement"
+  );
 }
 
 function collectGuardedGotoCalls(file, ast, diagnostics) {
   const guarded = new Set();
+  let targetBindingCount = 0;
+  let validTargetBinding = false;
+  let helperBindingCount = 0;
+  let validHelperBinding = false;
+  for (const node of ast.body) {
+    if (node.type === "VariableDeclaration") {
+      for (const declaration of node.declarations) {
+        if (
+          declaration.id.type === "Identifier" &&
+          declaration.id.name === "TARGET"
+        ) {
+          targetBindingCount += 1;
+          validTargetBinding =
+            node.kind === "const" && staticString(declaration.init) === TARGET;
+        }
+        if (
+          declaration.id.type === "Identifier" &&
+          declaration.id.name === "isSafeLoopbackTarget"
+        ) {
+          helperBindingCount += 1;
+        }
+      }
+    }
+    if (
+      node.type === "FunctionDeclaration" &&
+      node.id?.name === "isSafeLoopbackTarget"
+    ) {
+      helperBindingCount += 1;
+      validHelperBinding = true;
+    }
+    if (
+      (node.type === "FunctionDeclaration" ||
+        node.type === "ClassDeclaration") &&
+      node.id?.name === "TARGET"
+    ) {
+      targetBindingCount += 1;
+    }
+  }
+  let guardBindingMutated = false;
+  walk.full(ast, (node) => {
+    const mutationTargets = node.type === "AssignmentExpression"
+      ? [node.left]
+      : node.type === "UpdateExpression"
+        ? [node.argument]
+        : node.type === "ForOfStatement" || node.type === "ForInStatement"
+          ? node.left.type === "VariableDeclaration"
+            ? node.left.declarations.map((declaration) => declaration.id)
+            : [node.left]
+          : [];
+    if (
+      mutationTargets.some((target) =>
+        patternIdentifiers(target).some((name) =>
+          name === "TARGET" || name === "isSafeLoopbackTarget"
+        )
+      )
+    ) {
+      guardBindingMutated = true;
+    }
+  });
+  const authenticGuardBindings =
+    targetBindingCount === 1 &&
+    validTargetBinding &&
+    helperBindingCount === 1 &&
+    validHelperBinding &&
+    !guardBindingMutated;
+
   walk.simple(ast, {
     MethodDefinition(method) {
       if (
@@ -346,6 +411,7 @@ function collectGuardedGotoCalls(file, ast, diagnostics) {
       );
       const gotoCalls = [];
       const invalidations = [];
+      let hasLocalGuardBinding = false;
       const nearestFunction = (ancestors) =>
         [...ancestors].reverse().find((ancestor) =>
           [
@@ -354,25 +420,85 @@ function collectGuardedGotoCalls(file, ast, diagnostics) {
             "ArrowFunctionExpression"
           ].includes(ancestor.type)
         );
+      const recordLocalBinding = (pattern) => {
+        if (
+          patternIdentifiers(pattern).some((name) =>
+            name === urlName ||
+            name === "TARGET" ||
+            name === "isSafeLoopbackTarget"
+          )
+        ) {
+          hasLocalGuardBinding = true;
+        }
+      };
+      const recordLoopInvalidation = (statement, _state, ancestors) => {
+        const leftPatterns = statement.left.type === "VariableDeclaration"
+          ? statement.left.declarations.map((declaration) => declaration.id)
+          : [statement.left];
+        if (
+          leftPatterns.some((pattern) =>
+            patternIdentifiers(pattern).includes(urlName)
+          )
+        ) {
+          invalidations.push({
+            node: statement,
+            owner: nearestFunction(ancestors)
+          });
+        }
+      };
       walk.ancestor(method.value, {
+        VariableDeclarator(declaration) {
+          recordLocalBinding(declaration.id);
+        },
+        FunctionDeclaration(fn) {
+          recordLocalBinding(fn.id);
+          for (const parameter of fn.params) recordLocalBinding(parameter);
+        },
+        FunctionExpression(fn) {
+          if (fn === method.value) {
+            for (const parameter of fn.params.slice(1)) {
+              recordLocalBinding(parameter);
+            }
+            return;
+          }
+          recordLocalBinding(fn.id);
+          for (const parameter of fn.params) recordLocalBinding(parameter);
+        },
+        ArrowFunctionExpression(fn) {
+          for (const parameter of fn.params) recordLocalBinding(parameter);
+        },
+        ClassDeclaration(classNode) {
+          recordLocalBinding(classNode.id);
+        },
+        ClassExpression(classNode) {
+          recordLocalBinding(classNode.id);
+        },
+        CatchClause(clause) {
+          recordLocalBinding(clause.param);
+        },
         AssignmentExpression(assignment, _state, ancestors) {
           if (
-            nearestFunction(ancestors) === method.value &&
-            assignment.left.type === "Identifier" &&
-            assignment.left.name === urlName
+            patternIdentifiers(assignment.left).includes(urlName)
           ) {
-            invalidations.push(assignment);
+            invalidations.push({
+              node: assignment,
+              owner: nearestFunction(ancestors)
+            });
           }
         },
         UpdateExpression(update, _state, ancestors) {
           if (
-            nearestFunction(ancestors) === method.value &&
             update.argument.type === "Identifier" &&
             update.argument.name === urlName
           ) {
-            invalidations.push(update);
+            invalidations.push({
+              node: update,
+              owner: nearestFunction(ancestors)
+            });
           }
         },
+        ForOfStatement: recordLoopInvalidation,
+        ForInStatement: recordLoopInvalidation,
         CallExpression(call, _state, ancestors) {
           if (
             call.callee.type === "MemberExpression" &&
@@ -385,13 +511,16 @@ function collectGuardedGotoCalls(file, ast, diagnostics) {
       for (const { call, owner } of gotoCalls) {
         const target = call.arguments[0];
         const valid =
+          authenticGuardBindings &&
+          !hasLocalGuardBinding &&
           owner === method.value &&
           target?.type === "Identifier" &&
           target.name === urlName &&
           guards.some((guard) =>
             guard.start < call.start &&
-            !invalidations.some((change) =>
-              change.start > guard.end && change.start < call.start
+            !invalidations.some(({ node: change, owner: changeOwner }) =>
+              changeOwner !== method.value ||
+              (change.start > guard.end && change.start < call.start)
             )
           );
         if (valid) guarded.add(call);
@@ -477,6 +606,7 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
   const tainted = new Set();
   const methodBindings = new Map();
   const privateFields = new Set();
+  const exportedBindings = new Set();
   const guardedGotoCalls = collectGuardedGotoCalls(file, ast, diagnostics);
 
   for (const node of ast.body) {
@@ -485,6 +615,27 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
       node.source.value === "playwright-core"
     ) {
       for (const specifier of node.specifiers) tainted.add(specifier.local.name);
+    }
+    if (node.type === "ExportNamedDeclaration") {
+      if (node.declaration?.type === "VariableDeclaration") {
+        for (const declaration of node.declaration.declarations) {
+          for (const name of patternIdentifiers(declaration.id)) {
+            exportedBindings.add(name);
+          }
+        }
+      }
+      if (
+        (node.declaration?.type === "FunctionDeclaration" ||
+          node.declaration?.type === "ClassDeclaration") &&
+        node.declaration.id?.name
+      ) {
+        exportedBindings.add(node.declaration.id.name);
+      }
+      for (const specifier of node.specifiers) {
+        if (specifier.local.type === "Identifier") {
+          exportedBindings.add(specifier.local.name);
+        }
+      }
     }
   }
 
@@ -499,6 +650,9 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
 
   function taintKind(node) {
     if (!node) return null;
+    if (node.type === "SpreadElement" || node.type === "RestElement") {
+      return taintKind(node.argument);
+    }
     if (node.type === "Identifier") {
       if (methodBindings.has(node.name)) return "method";
       return tainted.has(node.name) ? "raw" : null;
@@ -507,6 +661,9 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
       return taintKind(node.argument ?? node.expression);
     }
     if (node.type === "AssignmentExpression") return taintKind(node.right);
+    if (node.type === "SequenceExpression") {
+      return taintKind(node.expressions.at(-1));
+    }
     if (
       node.type === "LogicalExpression" ||
       node.type === "ConditionalExpression"
@@ -522,6 +679,11 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
     }
     if (node.type === "ArrayExpression") {
       return node.elements.some((element) => taintKind(element)) ? "raw" : null;
+    }
+    if (node.type === "TemplateLiteral") {
+      return node.expressions.some((expression) => taintKind(expression))
+        ? "raw"
+        : null;
     }
     if (node.type === "ObjectExpression") {
       return node.properties.some((property) =>
@@ -569,32 +731,85 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
     return changed;
   }
 
-  for (let pass = 0; pass < 12; pass += 1) {
+  function assignTarget(pattern, kind, methodName) {
+    if (!pattern || !kind) return false;
+    if (pattern.type === "Identifier") {
+      return assignPattern(pattern, kind, methodName);
+    }
+    if (
+      pattern.type === "AssignmentPattern" ||
+      pattern.type === "RestElement"
+    ) {
+      return assignTarget(
+        pattern.left ?? pattern.argument,
+        kind,
+        methodName
+      );
+    }
+    if (pattern.type === "ArrayPattern") {
+      let changed = false;
+      for (const element of pattern.elements) {
+        changed = assignTarget(element, kind, methodName) || changed;
+      }
+      return changed;
+    }
+    if (pattern.type === "ObjectPattern") {
+      let changed = false;
+      for (const property of pattern.properties) {
+        changed = assignTarget(
+          property.type === "RestElement" ? property.argument : property.value,
+          kind,
+          methodName
+        ) || changed;
+      }
+      return changed;
+    }
+    if (
+      pattern.type === "MemberExpression" &&
+      pattern.object.type === "ThisExpression" &&
+      pattern.property.type === "PrivateIdentifier" &&
+      !privateFields.has(pattern.property.name)
+    ) {
+      privateFields.add(pattern.property.name);
+      return true;
+    }
+    return false;
+  }
+
+  for (;;) {
     let changed = false;
     walk.full(ast, (node) => {
       if (node.type === "AssignmentPattern") {
-        changed = assignPattern(node.left, taintKind(node.right)) || changed;
+        changed = assignTarget(node.left, taintKind(node.right)) || changed;
       }
       if (node.type === "VariableDeclarator") {
         const kind = taintKind(node.init);
         const methodName = node.init?.type === "MemberExpression"
           ? memberName(node.init, constStrings)
           : undefined;
-        changed = assignPattern(node.id, kind, methodName) || changed;
+        changed = assignTarget(node.id, kind, methodName) || changed;
       }
       if (node.type === "AssignmentExpression") {
         const kind = taintKind(node.right);
-        if (
-          kind &&
-          node.left.type === "MemberExpression" &&
-          node.left.object.type === "ThisExpression" &&
-          node.left.property.type === "PrivateIdentifier" &&
-          !privateFields.has(node.left.property.name)
-        ) {
-          privateFields.add(node.left.property.name);
-          changed = true;
+        changed = assignTarget(node.left, kind) || changed;
+      }
+      if (
+        node.type === "PropertyDefinition" &&
+        node.key.type === "PrivateIdentifier" &&
+        taintKind(node.value) &&
+        !privateFields.has(node.key.name)
+      ) {
+        privateFields.add(node.key.name);
+        changed = true;
+      }
+      if (node.type === "ForOfStatement") {
+        const kind = taintKind(node.right);
+        if (node.left.type === "VariableDeclaration") {
+          for (const declaration of node.left.declarations) {
+            changed = assignTarget(declaration.id, kind) || changed;
+          }
         } else {
-          changed = assignPattern(node.left, kind) || changed;
+          changed = assignTarget(node.left, kind) || changed;
         }
       }
     });
@@ -689,8 +904,37 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
     }
 
     if (
+      node.type === "NewExpression" &&
+      node.arguments.some((argument) => taintKind(argument))
+    ) {
+      diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+    }
+
+    if (
+      node.type === "TaggedTemplateExpression" &&
+      node.quasi.expressions.some((expression) => taintKind(expression))
+    ) {
+      diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+    }
+
+    if (
       node.type === "ReturnStatement" &&
       taintKind(node.argument)
+    ) {
+      diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+    }
+
+    if (
+      (node.type === "ThrowStatement" || node.type === "YieldExpression") &&
+      taintKind(node.argument)
+    ) {
+      diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+    }
+
+    if (
+      node.type === "PropertyDefinition" &&
+      node.key.type !== "PrivateIdentifier" &&
+      taintKind(node.value)
     ) {
       diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
     }
@@ -708,12 +952,36 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
     }
 
     if (
+      node.type === "AssignmentExpression" &&
+      taintKind(node.right) &&
+      patternIdentifiers(node.left).some((name) => exportedBindings.has(name))
+    ) {
+      diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+    }
+
+    if (
+      node.type === "ForOfStatement" &&
+      node.left.type !== "VariableDeclaration" &&
+      taintKind(node.right)
+    ) {
+      diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+    }
+
+    if (
       node.type === "ExportDefaultDeclaration" &&
       taintKind(node.declaration)
     ) {
       diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
     }
     if (node.type === "ExportNamedDeclaration") {
+      if (
+        node.declaration?.type === "VariableDeclaration" &&
+        node.declaration.declarations.some((declaration) =>
+          taintKind(declaration.init)
+        )
+      ) {
+        diagnostics.push(diagnostic(file, node, "PW_RAW_ESCAPE"));
+      }
       for (const specifier of node.specifiers) {
         if (taintKind(specifier.local)) {
           diagnostics.push(diagnostic(file, specifier, "PW_RAW_ESCAPE"));
@@ -725,7 +993,57 @@ function deepAuditPassiveEdge(file, ast, diagnostics) {
 
 function scanAutomatedDangers(file, ast, diagnostics) {
   if (!ast) return;
+  const processAliases = new Set(["process"]);
+  const constStrings = collectConstStrings(ast);
+  for (;;) {
+    let changed = false;
+    walk.full(ast, (node) => {
+      const target = node.type === "VariableDeclarator"
+        ? node.id
+        : node.type === "AssignmentExpression"
+          ? node.left
+          : null;
+      const value = node.type === "VariableDeclarator"
+        ? node.init
+        : node.type === "AssignmentExpression"
+          ? node.right
+          : null;
+      if (
+        target?.type === "Identifier" &&
+        value?.type === "Identifier" &&
+        processAliases.has(value.name) &&
+        !processAliases.has(target.name)
+      ) {
+        processAliases.add(target.name);
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
   walk.full(ast, (node) => {
+    if (node.type === "ObjectPattern") {
+      for (const property of node.properties) {
+        if (property.type !== "Property") continue;
+        const name = property.computed
+          ? staticString(property.key, constStrings)
+          : property.key.name ?? String(property.key.value);
+        if (name === "createRequire") {
+          diagnostics.push(
+            diagnostic(file, property, "DYNAMIC_REQUIRE_FORBIDDEN")
+          );
+        } else if (["constructor", "getBuiltinModule"].includes(name)) {
+          diagnostics.push(
+            diagnostic(file, property, "DYNAMIC_ESCAPE_FORBIDDEN")
+          );
+        }
+      }
+    }
+    if (
+      node.type === "ImportDeclaration" &&
+      ["module", "node:module"].includes(node.source.value)
+    ) {
+      diagnostics.push(diagnostic(file, node, "DYNAMIC_REQUIRE_FORBIDDEN"));
+    }
     if (node.type === "ImportExpression") {
       diagnostics.push(diagnostic(file, node, "DYNAMIC_IMPORT_FORBIDDEN"));
     }
@@ -750,9 +1068,21 @@ function scanAutomatedDangers(file, ast, diagnostics) {
     ) {
       const owner = node.callee.object.name;
       const name = memberName(node.callee, new Map());
-      if (DYNAMIC_ESCAPE_MEMBERS.get(owner)?.has(name)) {
+      if (
+        DYNAMIC_ESCAPE_MEMBERS.get(owner)?.has(name) ||
+        (processAliases.has(owner) && name === "getBuiltinModule")
+      ) {
         diagnostics.push(diagnostic(file, node, "DYNAMIC_ESCAPE_FORBIDDEN"));
       }
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id.type === "Identifier" &&
+      node.init?.type === "Identifier" &&
+      processAliases.has(node.init.name) &&
+      node.id.name !== "process"
+    ) {
+      diagnostics.push(diagnostic(file, node, "DYNAMIC_ESCAPE_FORBIDDEN"));
     }
   });
   walk.fullAncestor(ast, (node, _state, ancestors) => {
@@ -779,6 +1109,18 @@ function scanAutomatedDangers(file, ast, diagnostics) {
       )
     ) {
       diagnostics.push(diagnostic(file, node, "DYNAMIC_ESCAPE_FORBIDDEN"));
+    }
+    if (
+      node.type === "MemberExpression" &&
+      memberName(node, new Map()) === "constructor"
+    ) {
+      diagnostics.push(diagnostic(file, node, "DYNAMIC_ESCAPE_FORBIDDEN"));
+    }
+    if (
+      node.type === "MemberExpression" &&
+      memberName(node, new Map()) === "createRequire"
+    ) {
+      diagnostics.push(diagnostic(file, node, "DYNAMIC_REQUIRE_FORBIDDEN"));
     }
     if (
       node.type === "Identifier" &&
@@ -810,6 +1152,7 @@ function relativeModuleTarget(file, specifier) {
 
 function scanPassiveEdgeImportSeam(file, ast, diagnostics) {
   if (!ast) return;
+  const importedBindings = new Set();
   for (const node of ast.body) {
     if (
       relativeModuleTarget(file, node.source?.value) !== PASSIVE_EDGE_FILE
@@ -830,6 +1173,139 @@ function scanPassiveEdgeImportSeam(file, ast, diagnostics) {
     if (!valid) {
       diagnostics.push(
         diagnostic(file, node, "PASSIVE_EDGE_IMPORT_SHAPE")
+      );
+    } else {
+      importedBindings.add(node.specifiers[0].local.name);
+    }
+  }
+  const referencesImportedBinding = (node) => {
+    if (!node) return false;
+    let found = false;
+    walk.full(node, (child) => {
+      if (
+        child.type === "Identifier" &&
+        importedBindings.has(child.name)
+      ) {
+        found = true;
+      }
+    });
+    return found;
+  };
+  const aliasesImportedBinding = (node) => {
+    if (!node) return false;
+    if (node.type === "Identifier") {
+      return importedBindings.has(node.name);
+    }
+    if (
+      node.type === "ChainExpression" ||
+      node.type === "AwaitExpression"
+    ) {
+      return aliasesImportedBinding(node.expression ?? node.argument);
+    }
+    if (node.type === "AssignmentExpression") {
+      return aliasesImportedBinding(node.right);
+    }
+    if (node.type === "SequenceExpression") {
+      return aliasesImportedBinding(node.expressions.at(-1));
+    }
+    if (
+      node.type === "LogicalExpression" ||
+      node.type === "ConditionalExpression"
+    ) {
+      const candidates = node.type === "ConditionalExpression"
+        ? [node.consequent, node.alternate]
+        : [node.left, node.right];
+      return candidates.some(aliasesImportedBinding);
+    }
+    if (node.type === "ClassExpression") {
+      return aliasesImportedBinding(node.superClass);
+    }
+    return false;
+  };
+  for (;;) {
+    let changed = false;
+    walk.full(ast, (node) => {
+      const target = node.type === "VariableDeclarator"
+        ? node.id
+        : node.type === "AssignmentExpression"
+          ? node.left
+          : null;
+      const value = node.type === "VariableDeclarator"
+        ? node.init
+        : node.type === "AssignmentExpression"
+          ? node.right
+          : null;
+      if (
+        target?.type === "Identifier" &&
+        aliasesImportedBinding(value) &&
+        !importedBindings.has(target.name)
+      ) {
+        importedBindings.add(target.name);
+        changed = true;
+      }
+      if (
+        node.type === "ClassDeclaration" &&
+        node.id?.name &&
+        referencesImportedBinding(node.superClass) &&
+        !importedBindings.has(node.id.name)
+      ) {
+        importedBindings.add(node.id.name);
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
+  walk.fullAncestor(ast, (node, _state, ancestors) => {
+    if (
+      node.type !== "Identifier" ||
+      !importedBindings.has(node.name)
+    ) {
+      return;
+    }
+    const parent = ancestors.at(-2);
+    const importSpecifier = parent?.type === "ImportSpecifier";
+    const directConstruction =
+      parent?.type === "NewExpression" && parent.callee === node;
+    const nonReferencePropertyKey =
+      (parent?.type === "MemberExpression" &&
+        parent.property === node &&
+        !parent.computed) ||
+      (parent?.type === "Property" &&
+        parent.key === node &&
+        !parent.computed &&
+        !parent.shorthand) ||
+      (parent?.type === "MethodDefinition" &&
+        parent.key === node &&
+        !parent.computed);
+    if (!importSpecifier && !directConstruction && !nonReferencePropertyKey) {
+      diagnostics.push(
+        diagnostic(file, node, "PASSIVE_EDGE_REEXPORT_FORBIDDEN")
+      );
+    }
+  });
+  for (const node of ast.body) {
+    if (
+      node.type !== "ExportNamedDeclaration" &&
+      node.type !== "ExportDefaultDeclaration"
+    ) {
+      continue;
+    }
+    let exportReferencesImportedBinding = node.type === "ExportNamedDeclaration" &&
+      node.specifiers.some((specifier) =>
+        specifier.local.type === "Identifier" &&
+        importedBindings.has(specifier.local.name)
+      );
+    walk.full(node, (child) => {
+      if (
+        child.type === "Identifier" &&
+        importedBindings.has(child.name)
+      ) {
+        exportReferencesImportedBinding = true;
+      }
+    });
+    if (exportReferencesImportedBinding) {
+      diagnostics.push(
+        diagnostic(file, node, "PASSIVE_EDGE_REEXPORT_FORBIDDEN")
       );
     }
   }
@@ -858,12 +1334,91 @@ function scanPassiveEdgeConstructors(file, ast, diagnostics) {
   }
   if (file === PASSIVE_EDGE_FILE) bindings.add("PassiveEdge");
 
+  function references(values, node) {
+    if (!node) return false;
+    if (node.type === "Identifier") return values.has(node.name);
+    if (
+      node.type === "ChainExpression" ||
+      node.type === "AwaitExpression"
+    ) {
+      return references(values, node.expression ?? node.argument);
+    }
+    if (node.type === "AssignmentExpression") {
+      return references(values, node.right);
+    }
+    if (node.type === "SequenceExpression") {
+      return references(values, node.expressions.at(-1));
+    }
+    if (
+      node.type === "LogicalExpression" ||
+      node.type === "ConditionalExpression"
+    ) {
+      const candidates = node.type === "ConditionalExpression"
+        ? [node.consequent, node.alternate]
+        : [node.left, node.right];
+      return candidates.some((candidate) => references(values, candidate));
+    }
+    if (node.type === "ClassExpression") {
+      return references(values, node.superClass);
+    }
+    return false;
+  }
+
   function isPassiveEdgeConstruction(node) {
     return (
       node?.type === "NewExpression" &&
-      node.callee.type === "Identifier" &&
-      bindings.has(node.callee.name)
+      references(bindings, node.callee)
     );
+  }
+
+  for (;;) {
+    let changed = false;
+    walk.full(ast, (node) => {
+      if (
+        node.type === "VariableDeclarator" &&
+        node.id.type === "Identifier"
+      ) {
+        if (references(bindings, node.init) && !bindings.has(node.id.name)) {
+          bindings.add(node.id.name);
+          changed = true;
+        }
+        if (
+          (isPassiveEdgeConstruction(node.init) ||
+            references(instances, node.init)) &&
+          !instances.has(node.id.name)
+        ) {
+          instances.add(node.id.name);
+          changed = true;
+        }
+      }
+      if (
+        node.type === "AssignmentExpression" &&
+        node.left.type === "Identifier"
+      ) {
+        if (references(bindings, node.right) && !bindings.has(node.left.name)) {
+          bindings.add(node.left.name);
+          changed = true;
+        }
+        if (
+          (isPassiveEdgeConstruction(node.right) ||
+            references(instances, node.right)) &&
+          !instances.has(node.left.name)
+        ) {
+          instances.add(node.left.name);
+          changed = true;
+        }
+      }
+      if (
+        node.type === "ClassDeclaration" &&
+        node.id?.name &&
+        references(bindings, node.superClass) &&
+        !bindings.has(node.id.name)
+      ) {
+        bindings.add(node.id.name);
+        changed = true;
+      }
+    });
+    if (!changed) break;
   }
 
   walk.full(ast, (node) => {
@@ -872,13 +1427,6 @@ function scanPassiveEdgeConstructors(file, ast, diagnostics) {
       if (!objectKeysAllowed(options, new Set(["profileDir", "headless"]))) {
         diagnostics.push(diagnostic(file, node, "PASSIVE_EDGE_CONSTRUCTOR"));
       }
-    }
-    if (
-      node.type === "VariableDeclarator" &&
-      node.id.type === "Identifier" &&
-      isPassiveEdgeConstruction(node.init)
-    ) {
-      instances.add(node.id.name);
     }
   });
 
@@ -892,7 +1440,7 @@ function scanPassiveEdgeConstructors(file, ast, diagnostics) {
     }
     const receiver = node.callee.object;
     const owned =
-      (receiver.type === "Identifier" && instances.has(receiver.name)) ||
+      references(instances, receiver) ||
       isPassiveEdgeConstruction(receiver);
     if (!owned) return;
     if (staticString(node.arguments[0], constStrings) !== TARGET) {

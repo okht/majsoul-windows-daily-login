@@ -103,7 +103,7 @@ function normalizeRawSource(source) {
 
   const concatenatedStrings =
     /(["'])([^"'\\\r\n]*)\1\s*\+\s*(["'])([^"'\\\r\n]*)\3/gu;
-  for (let pass = 0; pass < 12; pass += 1) {
+  for (;;) {
     const collapsed = normalized.replace(
       concatenatedStrings,
       (_match, quote, left, _rightQuote, right) =>
@@ -115,7 +115,7 @@ function normalizeRawSource(source) {
 
   const constants = new Map();
   const constantPattern =
-    /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*(["'])([^"'\r\n]+)\2\s*;/gu;
+    /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*(["'])([^"'\r\n]+)\2(?=(?:[ \t]|\/\*[\s\S]*?\*\/)*(?:;|\/\/[^\r\n]*(?:\r?\n|$)|\r?\n|$))/gu;
   let constant;
   while ((constant = constantPattern.exec(normalized)) !== null) {
     if (FORBIDDEN_MEMBER_NAMES.has(constant[3])) {
@@ -139,8 +139,9 @@ export function grepForbiddenSource(source, file = "source.mjs") {
     .sort((left, right) => right.length - left.length)
     .map((value) => value.replace(/[$]/gu, "\\$&"))
     .join("|");
+  const gap = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*`;
   const expression = new RegExp(
-    `\\b(?:page|locator|context|browser|mouse|keyboard|touchscreen)\\s*(?:\\.\\s*(?:${names})\\b|\\[\\s*["'](?:${names})["']\\s*\\])|\\bInput\\.dispatch[A-Za-z]+`,
+    `\\b(?:page|locator|context|browser|mouse|keyboard|touchscreen)${gap}(?:\\.${gap}(?:${names})\\b|\\[${gap}["'](?:${names})["']${gap}\\])|\\bInput\\.dispatch[A-Za-z]+`,
     "gu"
   );
   let match;
