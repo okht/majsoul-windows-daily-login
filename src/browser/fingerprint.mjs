@@ -13,8 +13,8 @@ const BLOCK_COUNT = GRID_COLUMNS * GRID_ROWS;
 const FEATURES_PER_BLOCK = 3;
 const SLOT_COUNT = BLOCK_COUNT * FEATURES_PER_BLOCK;
 const DROP_LOWEST_BLOCKS = 12;
-// Real lobbies animate; require mutual similarity at least as strong as live match.
-const ENROLLMENT_MINIMUM = 0.88;
+// Real Mahjong Soul lobbies animate heavily; keep enrollment and match aligned.
+const ENROLLMENT_MINIMUM = 0.55;
 const ENROLLMENT_FRAME_MIN = 3;
 const ENROLLMENT_FRAME_MAX = 12;
 const MAX_INPUT_PIXELS = 16_000_000;
@@ -26,7 +26,7 @@ const TONE_BOUNDARIES = [-48, -24, -8, 8, 24, 48];
 const SPREAD_BOUNDARIES = [8, 20, 40];
 const FEATURE_WEIGHTS = [0.5, 0.2, 0.3];
 
-export const LOBBY_MATCH_THRESHOLD = 0.88;
+export const LOBBY_MATCH_THRESHOLD = 0.55;
 
 sharp.cache(false);
 

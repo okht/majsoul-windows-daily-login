@@ -209,7 +209,7 @@ describe("fingerprint record persistence", () => {
   it("rejects invalid schema and extra fields on read", async () => {
     const { paths } = await temporaryPaths();
     const record = validRecord();
-    record.threshold = 0.88;
+    record.threshold = 0.55;
     await writeFile(paths.fingerprint, JSON.stringify(record), "utf8");
 
     await expect(readFingerprintRecord(paths)).rejects.toMatchObject({

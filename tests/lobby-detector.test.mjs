@@ -112,14 +112,13 @@ describe("detectLobby", () => {
     expect(frame).not.toHaveBeenCalled();
   });
 
-  it("requires exactly three consecutive scores at the fixed threshold", async () => {
+  it("requires exactly two consecutive scores at the fixed threshold", async () => {
     const { session, frame } = guardedSession();
     const timer = clock();
     const scoreFrame = vi
       .fn()
-      .mockResolvedValueOnce(0.88)
-      .mockResolvedValueOnce(0.91)
-      .mockResolvedValueOnce(0.88);
+      .mockResolvedValueOnce(0.55)
+      .mockResolvedValueOnce(0.6);
 
     await expect(
       detectLobby(session, { strict: true }, () => "token", {
@@ -127,19 +126,20 @@ describe("detectLobby", () => {
         sleep: timer.sleep,
         scoreFrame,
         deadlineMs: 20_000,
-        intervalMs: 5_000
+        intervalMs: 5_000,
+        isDarkFrame: async () => false
       })
     ).resolves.toEqual({ status: "SUCCESS" });
 
-    expect(frame).toHaveBeenCalledTimes(3);
-    expect(scoreFrame).toHaveBeenCalledTimes(3);
-    expect(timer.sleep).toHaveBeenCalledTimes(2);
+    expect(frame).toHaveBeenCalledTimes(2);
+    expect(scoreFrame).toHaveBeenCalledTimes(2);
+    expect(timer.sleep).toHaveBeenCalledTimes(1);
   });
 
   it("resets the consecutive counter after a low score", async () => {
     const { session, frame } = guardedSession();
     const timer = clock();
-    const scores = [0.9, 0.9, 0.2, 0.9, 0.9, 0.9];
+    const scores = [0.9, 0.2, 0.9, 0.9];
     const scoreFrame = vi.fn(async () => scores.shift());
 
     await expect(
@@ -147,18 +147,19 @@ describe("detectLobby", () => {
         now: timer.now,
         sleep: timer.sleep,
         scoreFrame,
+        isDarkFrame: async () => false,
         deadlineMs: 30_000,
         intervalMs: 5_000
       })
     ).resolves.toEqual({ status: "SUCCESS" });
 
-    expect(frame).toHaveBeenCalledTimes(6);
+    expect(frame).toHaveBeenCalledTimes(4);
   });
 
   it("turns a reached deadline into conservative manual action", async () => {
     const { session, frame } = guardedSession();
     const timer = clock();
-    const scoreFrame = vi.fn(async () => 0.87);
+    const scoreFrame = vi.fn(async () => 0.4);
 
     await expect(
       detectLobby(session, {}, () => "token", {
@@ -166,7 +167,8 @@ describe("detectLobby", () => {
         sleep: timer.sleep,
         scoreFrame,
         deadlineMs: 10_000,
-        intervalMs: 5_000
+        intervalMs: 5_000,
+        isDarkFrame: async () => false
       })
     ).resolves.toEqual({
       status: "MANUAL_ACTION_REQUIRED",
@@ -227,15 +229,14 @@ describe("detectLobby", () => {
     expect(ownedFrame.every((byte) => byte === 0)).toBe(true);
   });
 
-  it("does not accept the third high score when scoring reaches the deadline", async () => {
+  it("does not accept a single high score when deadline prevents a second match", async () => {
     const { session, frame } = guardedSession();
     const timer = clock();
     const scoreFrame = vi
       .fn()
       .mockResolvedValueOnce(0.95)
-      .mockResolvedValueOnce(0.95)
       .mockImplementationOnce(async () => {
-        timer.advance(2_000);
+        timer.advance(20_000);
         return 0.95;
       });
 
@@ -245,15 +246,16 @@ describe("detectLobby", () => {
         sleep: timer.sleep,
         scoreFrame,
         deadlineMs: 12_000,
-        intervalMs: 5_000
+        intervalMs: 5_000,
+        isDarkFrame: async () => false
       })
     ).resolves.toEqual({
       status: "MANUAL_ACTION_REQUIRED",
       reasonCode: "LOBBY_UNCONFIRMED"
     });
 
-    expect(frame).toHaveBeenCalledTimes(3);
-    expect(scoreFrame).toHaveBeenCalledTimes(3);
+    expect(frame).toHaveBeenCalledTimes(2);
+    expect(scoreFrame).toHaveBeenCalledTimes(2);
   });
 
   it("treats unknown scores as unconfirmed instead of success", async () => {
@@ -286,11 +288,12 @@ describe("detectLobby", () => {
         sleep: timer.sleep,
         scoreFrame,
         deadlineMs: 20_000,
-        intervalMs: 5_000
+        intervalMs: 5_000,
+        isDarkFrame: async () => false
       })
     ).resolves.toEqual({ status: "SUCCESS" });
 
-    expect(frame).toHaveBeenCalledTimes(3);
+    expect(frame).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -310,11 +313,12 @@ describe("detectLobby", () => {
         sleep: timer.sleep,
         scoreFrame,
         deadlineMs: 20_000,
-        intervalMs: 5_000
+        intervalMs: 5_000,
+        isDarkFrame: async () => false
       })
     ).resolves.toEqual({ status: "SUCCESS" });
 
-    expect(frame).toHaveBeenCalledTimes(3);
+    expect(frame).toHaveBeenCalledTimes(2);
   });
 
   it("checks normalized title text for a manual marker", async () => {

@@ -1,5 +1,5 @@
 import { execFile, spawn as nodeSpawn } from "node:child_process";
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -201,6 +201,17 @@ export class PassiveEdge {
     }
 
     await mkdir(this.#profileDir, { recursive: true });
+    // Stale Chromium singleton locks leave "Timed out waiting for Edge
+    // debugging port" after a killed previous run.
+    for (const name of [
+      "SingletonLock",
+      "SingletonCookie",
+      "SingletonSocket"
+    ]) {
+      await rm(path.join(this.#profileDir, name), { force: true }).catch(
+        () => undefined
+      );
+    }
     const edgePath = this.#edgePath ?? (await this.#findEdgePath());
     const port = await pickFreePort();
 

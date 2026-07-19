@@ -73,33 +73,44 @@ export async function verifyStoredSession(dependencies = {}) {
   let session;
   let detectorResult;
   let failed = false;
+  let failureDetail;
 
   try {
     log("正在启动无头 Edge（屏幕外），请等待…");
-    session = await values.createSession({
+    session = values.createSession({
       profileDir: values.paths.profile,
       headless: true
     });
     log("正在打开雀魂页面…");
     await session.open(TARGET);
-    log("正在比对大厅指纹（最长约 3 分钟，期间可能无新输出）…");
+    log("正在比对大厅指纹（最长约 3 分钟）…");
     detectorResult = await values.withFingerprintTokenizer((tokenizer) =>
       values.detectLobby(session, record, tokenizer)
     );
-  } catch {
+  } catch (error) {
     failed = true;
+    failureDetail = error;
   } finally {
     if (session) {
       try {
         log("正在关闭浏览器…");
         await session.close();
-      } catch {
+      } catch (error) {
         failed = true;
+        failureDetail ??= error;
       }
     }
   }
 
-  return failed ? transientFailure() : mapDetectorResult(detectorResult);
+  if (failed) {
+    if (failureDetail?.code) {
+      log("失败细节: " + failureDetail.code + " " + (failureDetail.message || ""));
+    } else if (failureDetail?.message) {
+      log("失败细节: " + failureDetail.message);
+    }
+    return transientFailure();
+  }
+  return mapDetectorResult(detectorResult);
 }
 
 function isMainModule() {

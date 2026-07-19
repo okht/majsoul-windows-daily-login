@@ -133,7 +133,7 @@ afterEach(() => {
 
 describe("fingerprint enrollment", () => {
   it("exports the fixed detector threshold", () => {
-    expect(LOBBY_MATCH_THRESHOLD).toBe(0.88);
+    expect(LOBBY_MATCH_THRESHOLD).toBe(0.55);
   });
 
   it("accepts only three through twelve owned PNG frames", async () => {
@@ -357,11 +357,11 @@ describe("fingerprint scoring", () => {
     }
   );
 
-  it("allows 12 changed blocks after trimming but rejects 24", async () => {
+  it("allows 12 changed blocks after trimming but rejects 48", async () => {
     const record = await enroll(() => checkerFrame());
     const twelve = new Set(Array.from({ length: 12 }, (_, index) => index));
-    const twentyFour = new Set(
-      Array.from({ length: 24 }, (_, index) => index)
+    const fortyEight = new Set(
+      Array.from({ length: 48 }, (_, index) => index)
     );
 
     const twelveScore = await scoreLobbyFrame(
@@ -369,14 +369,14 @@ describe("fingerprint scoring", () => {
       record,
       tokenizer()
     );
-    const twentyFourScore = await scoreLobbyFrame(
-      await checkerFrame({ specialBlocks: twentyFour }),
+    const fortyEightScore = await scoreLobbyFrame(
+      await checkerFrame({ specialBlocks: fortyEight }),
       record,
       tokenizer()
     );
 
     expect(twelveScore).toBeGreaterThanOrEqual(LOBBY_MATCH_THRESHOLD);
-    expect(twentyFourScore).toBeLessThan(LOBBY_MATCH_THRESHOLD);
+    expect(fortyEightScore).toBeLessThan(LOBBY_MATCH_THRESHOLD);
   });
 
   it("rejects a reordered layout with at least 24 changed blocks", async () => {

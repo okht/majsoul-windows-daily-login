@@ -1,12 +1,38 @@
 import { performance } from "node:perf_hooks";
+import sharp from "sharp";
 import {
   LOBBY_MATCH_THRESHOLD,
   scoreLobbyFrame
 } from "./fingerprint.mjs";
 
 const DEFAULT_DEADLINE_MS = 180_000;
-const DEFAULT_INTERVAL_MS = 5_000;
-const REQUIRED_CONSECUTIVE_MATCHES = 3;
+const DEFAULT_INTERVAL_MS = 3_000;
+const REQUIRED_CONSECUTIVE_MATCHES = 2;
+const LOADING_DARK_RATIO = 0.75;
+
+async function isMostlyDarkFrame(png, options = {}) {
+  if (typeof options.isDarkFrame === "function") {
+    return options.isDarkFrame(png);
+  }
+  if (!Buffer.isBuffer(png)) return false;
+  try {
+    const { data } = await sharp(png)
+      .raw()
+      .ensureAlpha()
+      .toBuffer({ resolveWithObject: true });
+    let dark = 0;
+    let total = 0;
+    for (let index = 0; index < data.length; index += 32) {
+      total += 1;
+      if (data[index] < 20 && data[index + 1] < 20 && data[index + 2] < 20) {
+        dark += 1;
+      }
+    }
+    return total > 0 && dark / total >= LOADING_DARK_RATIO;
+  } catch {
+    return false;
+  }
+}
 
 const ENGLISH_MANUAL_MARKER =
   /\b(?:captcha|confirm|consent|log\s*in|login|sign\s*in|verification|verify)\b|^i\s+agree$/i;
@@ -80,7 +106,12 @@ export async function detectLobby(
 
     let score;
     try {
-      score = await scoreFrame(frame, record, tokenizer);
+      // Skip nearly-black loading frames without resetting match streak.
+      if (await isMostlyDarkFrame(frame, options)) {
+        // still consume the frame buffer below
+      } else {
+        score = await scoreFrame(frame, record, tokenizer);
+      }
     } finally {
       if (Buffer.isBuffer(frame)) frame.fill(0);
     }
@@ -94,7 +125,7 @@ export async function detectLobby(
       if (consecutiveMatches === REQUIRED_CONSECUTIVE_MATCHES) {
         return { status: "SUCCESS" };
       }
-    } else {
+    } else if (score !== undefined) {
       consecutiveMatches = 0;
     }
 
