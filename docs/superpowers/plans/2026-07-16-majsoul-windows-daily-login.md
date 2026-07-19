@@ -1635,7 +1635,7 @@ Expected: task is registered, a manual task invocation completes within ten minu
 
 - [ ] **Step 7: Update README only with verified commands**
 
-Change the status badge from <code>Pre-implementation</code> only after the full acceptance gate passes. Add the exact install, repair, status, and uninstall commands actually executed. Keep unverified fallback behavior out of the README.
+Status badge and public README: mark as implemented / local-installable after the full acceptance gate passes (not Pre-implementation / 设计阶段). Add the exact install, repair, and uninstall commands actually executed. Keep unverified fallback behavior out of the README.
 
 - [ ] **Step 8: Final verification and commit**
 

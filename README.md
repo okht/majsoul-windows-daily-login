@@ -2,218 +2,224 @@
 
 # Mahjong Soul Windows Daily Opener
 
-### *本机随机时间被动打开雀魂，复用现有浏览器会话进入大厅*
+### *Passive daily open of Mahjong Soul on your Windows PC—reuse a dedicated Edge session, confirm the lobby, then exit.*
 
-![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)
-![Browser](https://img.shields.io/badge/Browser-Microsoft%20Edge-0D9488)
-![Runtime](https://img.shields.io/badge/Runtime-Local%20only-16A34A)
-![Input](https://img.shields.io/badge/Input-No%20synthetic%20input-EF4444)
-![Notify](https://img.shields.io/badge/Email-Failure%20only-0891B2)
-![License](https://img.shields.io/badge/License-Private%20use-64748B)
+[![License](https://img.shields.io/badge/License-Private%20use-64748B.svg)](#-notes)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A522-2563EB?logo=nodedotjs&logoColor=white)](package.json)
+[![Version](https://img.shields.io/badge/Version-0.1.0-7C3AED)](package.json)
+[![Type](https://img.shields.io/badge/Type-Local%20Windows%20tool-0D9488)](#-highlights)
+[![Stars](https://img.shields.io/github/stars/okht/majsoul-windows-daily-login?style=social)](https://github.com/okht/majsoul-windows-daily-login)
+
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-F97316)](#-install)
+[![Browser](https://img.shields.io/badge/Browser-Microsoft%20Edge%20%2B%20CDP-16A34A)](#-workflow)
+[![Privacy](https://img.shields.io/badge/Privacy-Local%20data%20only-0891B2)](#-safety-and-boundaries)
+[![Boundary](https://img.shields.io/badge/Input-No%20synthetic%20clicks%2Fkeys-EF4444)](#-safety-and-boundaries)
+
+<br>
+
+<table>
+<tr><td align="left">
+
+🕘 &nbsp;You want a once-a-day Mahjong Soul open in the local morning window, not a fixed clock alarm.<br>
+🖱️ &nbsp;You refuse bots that click login buttons, type passwords, or bypass captchas.<br>
+🔒 &nbsp;You need login state, fingerprints, mail secrets, and logs to stay on the PC—never in Git.
+
+</td></tr>
+</table>
+
+### ✨ Local Task Scheduler opens a dedicated Edge profile, confirms the lobby read-only, then closes.
+
+**Local 10:00–12:30 → passive Edge (CDP) → lobby match → optional 10–30s dwell → silent exit**
+
+<br>
+
+[✨ Highlights](#-highlights) · [⚡ Install](#-install) · [🚀 Usage](#-usage) · [🧭 Workflow](#-workflow) · [🛡 Safety](#-safety-and-boundaries) · [📂 Structure](#-project-structure) · [📌 Notes](#-notes)
+
+[**English**](README.md) · [**简体中文**](docs/lang/README_ZH.md)
 
 </div>
 
-在你自己的 Windows 电脑上，按**本机系统时区**每天 10:00–12:30 随机打开一次雀魂网页版，复用专用 Edge 配置里的登录态，只观察是否进入大厅，然后退出。
+---
 
-- **成功**：静默，不发邮件  
-- **失败 / 需要人工操作**：纯文字 Gmail 提醒  
-- **绝不**：自动点击、填表、输入密码、截图上传、云端跑浏览器  
+## ✨ Highlights
 
-> [!IMPORTANT]
-> 公开仓库只包含源码与文档。雀魂账号、Gmail、Edge 配置、状态与日志都在本机  
-> `%LOCALAPPDATA%\MajSoulDaily` 与 Windows 凭据管理器中，**不会**也不应提交到 Git。
+A **local-only** Windows runner for the CN web client (`https://game.maj-soul.com/1/`). It reuses a dedicated Microsoft Edge profile you log into once, judges the lobby with irreversible visual fingerprints plus accessible text, and never synthesizes input on the scheduled path.
+
+| Capability | What it does | Why it matters |
+|---|---|---|
+| **Local wall-clock schedule** | Primary task: local **10:00 + up to 2.5h random delay**; catch-up on logon/unlock and from local **12:30** every 15 minutes | Matches “morning at home,” not a hard-coded Beijing-only install rule |
+| **Passive Edge via CDP** | Spawns system `msedge` with a dedicated profile and attaches over CDP (Playwright `launchPersistentContext` blacks out WebGL) | Real canvas/WebGL path for lobby detection |
+| **Read-only lobby gate** | Fingerprint match (threshold + two consecutive frames); accessible login/captcha text → stop | Confirms presence without clicking into the game |
+| **Success dwell** | After `SUCCESS`, keeps the session open for a random **10–30 seconds**, then closes | Gives the client a short settle window without hanging open |
+| **Failure-only Gmail** | Optional pure-text mail on failure / manual block; **no mail on success** | Quiet when healthy; alerts only when you must act |
+| **Install gates** | `npm run verify` + local acceptance receipt before `Register` | Scheduled tasks only after tests, zero-input scan, privacy scan, and live lobby check |
 
 ---
 
-## 它做什么 / 不做什么
+## ⚡ Install
 
-| 做 | 不做 |
-| --- | --- |
-| 定时被动打开 `https://game.maj-soul.com/1/` | 自动点击「登录」「确认」「进入游戏」 |
-| 复用本机专用 Edge 会话 | 保存雀魂邮箱/密码 |
-| 只读判断大厅（视觉指纹 + 可访问文本） | 保存页面截图、Cookie、Local Storage |
-| 锁屏不启动；解锁且联网后可补跑 | 唤醒睡眠中的电脑 |
-| 失败时发纯文字 Gmail | 成功时发邮件 |
-| 本机系统时区的当地 10:00–12:30 | 强制北京时间 / 因非中国时区拒绝安装 |
-| 本地运行 | 云端浏览器、代理、指纹伪装、验证码绕过 |
+**Requirements:** Windows 10/11 · [Node.js](https://nodejs.org/) **≥ 22** · Microsoft Edge · network to Mahjong Soul (and Gmail SMTP if you enable alerts).
 
-若页面仍需人工操作，运行器必须停止并提醒，**不会**替你点任何按钮。
-
----
-
-## 工作流程
-
-```text
-Windows 任务计划（本机时区）
-  ├─ 主任务：当地 10:00 + 最长 2.5h 随机延迟
-  └─ 补跑：登录/解锁 + 12:30 起每 15 分钟
-            ↓
-检查当日状态、锁屏、网络、互斥锁
-            ↓
-用已安装的无窗口启动器 → 系统 Edge（CDP 观察）
-            ↓
-只读判断大厅
-  ├─ 成功 → 记 SUCCESS，静默退出
-  ├─ 需人工 → BLOCKED_MANUAL + Gmail
-  └─ 瞬时故障 → 等待后续补跑
-```
-
-运行时文件（均在仓库外）：
-
-| 路径 | 内容 |
-| --- | --- |
-| `%LOCALAPPDATA%\MajSoulDaily\edge-profile` | 专用 Edge 配置（登录态） |
-| `%LOCALAPPDATA%\MajSoulDaily\lobby-fingerprint.json` | 大厅指纹（不可逆特征，非截图） |
-| `%LOCALAPPDATA%\MajSoulDaily\state` | 按本地日期的运行状态 |
-| `%LOCALAPPDATA%\MajSoulDaily\logs` | 脱敏日志（约保留 14 天） |
-| `%LOCALAPPDATA%\MajSoulDaily\config.json` | 仅 Gmail 发件/收件地址 |
-| Windows 凭据管理器 | Gmail 应用专用密码、指纹密钥 |
-| `%LOCALAPPDATA%\MajSoulDaily\app` | 部署后的运行副本（计划任务指向此处） |
-
----
-
-## 环境要求
-
-- Windows 10/11  
-- [Node.js](https://nodejs.org/) 22+  
-- 已安装 Microsoft Edge  
-- 能访问雀魂与 Gmail SMTP（若启用失败通知）  
-
----
-
-## 快速开始
-
-在**本仓库根目录**执行（不要在桌面等空目录跑 `npm`）。
-
-### 1. 安装依赖并自检
+Run every command from the **repository root** (not an empty folder).
 
 ```powershell
+git clone https://github.com/okht/majsoul-windows-daily-login.git
+cd majsoul-windows-daily-login
+
 npm ci
-# 若 npm ci 因文件锁失败，可用：npm install
+# If npm ci fails on lock/file sync: npm install
 
 npm run verify
 ```
 
-`verify` = 单元/集成测试 + 零输入静态检查 + 仓库隐私扫描。
+`verify` = unit/integration tests + zero-input static check + tracked-tree privacy scan.
 
-### 2. 建立登录态与大厅指纹
+<details>
+<summary><b>🛠️ One-shot deploy modes (after acceptance)</b></summary>
 
-```powershell
-# 可见 Edge：请手动登录并进入大厅，再回终端按 Enter
-node src/cli/setup-session.mjs
-```
-
-程序会关闭可见窗口，再用**与每日任务相同的无头路径**登记指纹。
-
-若登录已在专用配置里，只需刷新指纹：
+<br>
 
 ```powershell
-node src/cli/re-enroll-headless.mjs
-```
-
-### 3. 验证无头能否认出大厅
-
-```powershell
-node src/cli/verify-session.mjs
-```
-
-期望输出含 `SUCCESS`。可连续执行 2～3 次。  
-无头打开与比对可能需要 **1～3 分钟**，属正常。
-
-### 4. 配置失败通知（可选但推荐）
-
-```powershell
-node src/cli/configure-gmail.mjs
-```
-
-使用 Gmail **应用专用密码**（不是登录密码）。密码只进凭据管理器；仓库里不应出现真实邮箱。
-
-### 5. 本机验收回执（注册任务前必做）
-
-```powershell
-npm run acceptance
-```
-
-通过后写入：
-
-`%LOCALAPPDATA%\MajSoulDaily\acceptance-receipt.json`  
-
-（仅本机，不进 Git。）
-
-### 6. 部署并注册计划任务
-
-```powershell
-# 预览任务 XML，不注册、不部署
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Mode DryRun
-
-# 部署到 %LOCALAPPDATA%\MajSoulDaily\app
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Mode Deploy
-
-# 需要有效 acceptance receipt
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Mode Register
+# Or: -Mode Full   (verify + deploy; Register still needs acceptance receipt)
 ```
 
-任务名：
+</details>
 
-- `MajSoulDaily-Primary`  
-- `MajSoulDaily-Catchup`  
+---
 
-### 7. 会话失效时
+## 🚀 Usage
+
+### Smallest successful path
+
+| Step | Command | Observable result |
+|---|---|---|
+| **1. Enroll session** | `node src/cli/setup-session.mjs` | Visible Edge: log in and reach lobby, press Enter; headless re-enroll of fingerprint |
+| **2. Verify headless** | `node src/cli/verify-session.mjs` | Console includes `SUCCESS` (may take 1–3 minutes) |
+| **3. Optional mail** | `node src/cli/configure-gmail.mjs` | Gmail app password stored in Windows Credential Manager only |
+| **4. Acceptance** | `npm run acceptance` or `npm run acceptance -- --skip-gmail` | Writes `%LOCALAPPDATA%\MajSoulDaily\acceptance-receipt.json` (local only) |
+| **5. Deploy + register** | `install.ps1 -Mode Deploy` then `-Mode Register` | Tasks `MajSoulDaily-Primary` and `MajSoulDaily-Catchup` |
+
+### Day-to-day commands
+
+| Command | Role |
+|---|---|
+| `npm run verify` | Tests + zero-input + privacy |
+| `npm run acceptance` | Local acceptance receipt (optional `--skip-gmail`) |
+| `node src/cli/re-enroll-headless.mjs` | Refresh lobby fingerprint without headed login |
+| `node src/cli/repair-session.mjs` | Headed repair when the session expires |
+| `scripts\uninstall.ps1` | Remove tasks and local app/data (see script options) |
+
+### Manual smoke (after deploy)
 
 ```powershell
-node src/cli/repair-session.mjs
+& "$env:LOCALAPPDATA\MajSoulDaily\app\MajSoulDaily.exe" primary
+```
+
+Check next run:
+
+```powershell
+Get-ScheduledTaskInfo -TaskName "MajSoulDaily-Primary"
 ```
 
 ---
 
-## 常用命令
+## 🧭 Workflow
 
-| 命令 | 作用 |
-| --- | --- |
-| `npm run verify` | 测试 + 零输入守卫 + 隐私扫描 |
-| `npm run check:no-input` | 禁止调度路径合成输入 API |
-| `npm run check:privacy` | 扫描跟踪文件中的路径/密钥/非 example 邮箱 |
-| `npm run acceptance` | 本机验收并写回执 |
-| `node src/cli/setup-session.mjs` | 可见登录 + 无头登记指纹 |
-| `node src/cli/re-enroll-headless.mjs` | 仅无头重登记指纹 |
-| `node src/cli/verify-session.mjs` | 无头大厅验证 |
-| `node src/cli/configure-gmail.mjs` | 配置失败邮件 |
-| `node src/cli/repair-session.mjs` | 可见修复登录态 |
-| `scripts\install.ps1 -Mode DryRun\|Deploy\|Register\|Full` | 安装/注册 |
-| `scripts\uninstall.ps1` | 卸载任务与本地数据（配置文件可选保留） |
+```mermaid
+flowchart LR
+    A([Task Scheduler]) --> B[Primary / Catchup]
+    B --> C{Gates}
+    C -->|locked / offline / already done| D([Skip])
+    C -->|RUN| E[Windowless launcher]
+    E --> F[System Edge + CDP]
+    F --> G{Lobby read-only}
+    G -->|match ×2| H[SUCCESS + 10–30s dwell]
+    G -->|login / captcha text| I[BLOCKED_MANUAL]
+    G -->|timeout / crash| J[FAILED_TRANSIENT]
+    H --> K([Close Edge · no mail])
+    I --> L([Close · optional Gmail])
+    J --> M([Close · catch-up later])
+
+    style I fill:#FEE2E2,stroke:#EF4444,color:#000
+    style H fill:#DCFCE7,stroke:#16A34A,color:#000
+    style D fill:#F1F5F9,stroke:#64748B,color:#000
+```
+
+### Runtime data (never committed)
+
+| Path | Contents |
+|---|---|
+| `%LOCALAPPDATA%\MajSoulDaily\edge-profile` | Dedicated Edge profile (login state) |
+| `%LOCALAPPDATA%\MajSoulDaily\lobby-fingerprint.json` | Irreversible lobby features (not screenshots) |
+| `%LOCALAPPDATA%\MajSoulDaily\state` | Per **local date** run status |
+| `%LOCALAPPDATA%\MajSoulDaily\logs` | Redacted logs (~14 days) |
+| `%LOCALAPPDATA%\MajSoulDaily\config.json` | Gmail addresses only (if configured) |
+| Windows Credential Manager | App password + fingerprint key material |
+| `%LOCALAPPDATA%\MajSoulDaily\app` | Deployed copy tasks actually run |
 
 ---
 
-## 隐私与安全
+## 🛡 Safety and boundaries
 
-1. **不要**把真实邮箱、应用专用密码、绝对用户路径、截图、Edge profile 提交到 Git。  
-2. 测试与文档仅使用 `@example.com` 等占位符。  
-3. 日志会脱敏邮箱、Cookie、Authorization 等模式。  
-4. 调度任务只允许参数 `primary` / `catchup`，且指向已安装目录，不绑定开发用 worktree 路径。  
-5. 公开仓库的 `npm run check:privacy` 应在推送前保持通过。
+| Does | Does not |
+|---|---|
+| Open the official URL passively | Auto-click login, confirm, or enter game |
+| Reuse a dedicated local Edge profile | Store Mahjong Soul email/password in the repo |
+| Judge lobby with features + accessible text | Save page screenshots, cookies, or Local Storage to Git |
+| Skip when the session is locked | Wake a sleeping PC (`WakeToRun` off) |
+| Optional failure-only plain-text Gmail | Success spam mail |
+| Schedule by **OS local** 10:00–12:30 | Force China Standard Time or refuse non-CN zones |
+| Run only on your machine | Cloud browser, proxy farm, anti-detect stack, captcha solve |
 
-本地卸载示例：
+**Guards in tree**
+
+1. `npm run check:no-input` — scheduled source must not call synthetic input APIs.  
+2. `npm run check:privacy` — tracked files must not contain real emails, secrets, or absolute user home paths.  
+3. Task XML only allows launcher args `primary` / `catchup` (no `node` CLI on the schedule).  
+4. `Register` refuses without a valid local acceptance receipt.
+
+> [!IMPORTANT]
+> The public repository is source + docs only. Accounts, Gmail secrets, Edge profiles, state, logs, and acceptance receipts live under `%LOCALAPPDATA%\MajSoulDaily` and Credential Manager. **Do not commit them.**
+
+---
+
+## 📂 Project structure
+
+```text
+majsoul-windows-daily-login/
+├── src/
+│   ├── browser/          # PassiveEdge (CDP), fingerprint, lobby detector
+│   ├── cli/              # setup / verify / acceptance / gmail / repair
+│   └── daily-run.mjs     # schedule gates, attempts, success dwell
+├── scripts/
+│   ├── install.ps1       # DryRun | Deploy | Register | Full
+│   ├── uninstall.ps1
+│   ├── check-no-input.mjs
+│   └── check-privacy.mjs
+├── tools/launcher/       # Windowless C# launcher → installed MajSoulDaily.exe
+├── tests/                # Vitest unit + Edge integration matrix
+└── docs/
+    ├── lang/README_ZH.md
+    └── superpowers/      # design + implementation plans (history)
+```
+
+---
+
+## 📌 Notes
+
+- **Status:** Implemented and locally installable (verify + acceptance + Deploy/Register). Not a design-only sketch.  
+- **License:** Private / personal use (`package.json` `"private": true`). No OSI license file is published.  
+- **Terms risk:** Automated access may conflict with Mahjong Soul / Yostar terms. This project does **not** reduce detectability or bypass platform controls. Use at your own risk.  
+- **Session lifetime:** When cookies expire, run `node src/cli/repair-session.mjs` (or setup again), then re-verify.  
+- **Design history:** [spec](docs/superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md) · [plan](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login.md) · [corrections](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login-corrections.md)
+
+---
+
+## Uninstall
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall.ps1
 ```
-
----
-
-## 设计文档
-
-- [设计说明](docs/superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md)  
-- [实施计划](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login.md)  
-- [计划修正案](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login-corrections.md)  
-
----
-
-## 风险说明
-
-自动访问可能受到雀魂 / Yostar 服务条款限制。本项目**不**实现降低可检测性、绕过验证码或任何平台对抗功能。请自行评估账号风险，并遵守适用条款与当地法律。
-
----
-
-## 许可
-
-私人/自用工具。若公开 fork，请自行移除一切个人数据与本地路径，并保留安全边界说明。
