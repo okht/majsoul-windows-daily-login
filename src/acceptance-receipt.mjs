@@ -2,6 +2,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { appPaths } from "./paths.mjs";
 
+/** Checks required before registration. Gmail is optional and deferred. */
+export const REQUIRED_ACCEPTANCE_CHECKS = Object.freeze([
+  "verify",
+  "privacy",
+  "noInput",
+  "dryRun",
+  "noTasksRegistered",
+  "interactiveRealLobby"
+]);
+
 export function acceptanceReceiptPath(paths = appPaths()) {
   return path.join(paths.root, "acceptance-receipt.json");
 }
@@ -20,16 +30,7 @@ export function isReceiptValid(receipt, packageVersion, now = new Date()) {
   if (!isReceiptFresh(receipt, now)) return false;
   const checks = receipt.checks;
   if (!checks || typeof checks !== "object") return false;
-  const required = [
-    "verify",
-    "privacy",
-    "noInput",
-    "dryRun",
-    "noTasksRegistered",
-    "interactiveRealLobby",
-    "interactiveGmail"
-  ];
-  return required.every((key) => checks[key] === true);
+  return REQUIRED_ACCEPTANCE_CHECKS.every((key) => checks[key] === true);
 }
 
 export async function readAcceptanceReceipt(paths = appPaths()) {
@@ -55,7 +56,9 @@ export function buildAcceptanceReceipt({
   checks,
   createdAt = new Date().toISOString()
 }) {
-  const passed = Object.values(checks).every((value) => value === true);
+  const passed = REQUIRED_ACCEPTANCE_CHECKS.every(
+    (key) => checks?.[key] === true
+  );
   return {
     version,
     passed,

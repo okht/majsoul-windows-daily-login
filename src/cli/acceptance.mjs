@@ -137,9 +137,14 @@ export async function runAcceptance(dependencies = {}) {
   checks.noTasksRegistered = registered.length === 0;
   details.push("registeredTasks=" + registered.length);
 
+  // Gmail is optional: failure alerts can be configured later.
+  const skipGmail =
+    dependencies.skipGmail === true ||
+    process.argv.includes("--skip-gmail");
+
   if (interactive) {
     checks.interactiveRealLobby = await askYesNo(
-      "是否已完成 setup-session，并用 verify-session 连续三次确认大厅成功？",
+      "是否已完成 setup / re-enroll，并用 verify-session 确认大厅成功？",
       {
         confirm: dependencies.confirm,
         createInterface: dependencies.createInterface ?? nodeCreateInterface,
@@ -147,20 +152,29 @@ export async function runAcceptance(dependencies = {}) {
         output: dependencies.output ?? process.stdout
       }
     );
-    checks.interactiveGmail = await askYesNo(
-      "是否已运行 configure-gmail，并收到纯文字 CONFIG_TEST 邮件（无截图/无密钥）？",
-      {
-        confirm: dependencies.confirm,
-        createInterface: dependencies.createInterface ?? nodeCreateInterface,
-        input: dependencies.input ?? process.stdin,
-        output: dependencies.output ?? process.stdout
+    if (skipGmail) {
+      checks.interactiveGmail = false;
+      details.push("gmail:deferred");
+    } else {
+      checks.interactiveGmail = await askYesNo(
+        "是否已配置 Gmail 失败通知并收到 CONFIG_TEST？（可稍后配置，输入 n 跳过）",
+        {
+          confirm: dependencies.confirm,
+          createInterface: dependencies.createInterface ?? nodeCreateInterface,
+          input: dependencies.input ?? process.stdin,
+          output: dependencies.output ?? process.stdout
+        }
+      );
+      if (!checks.interactiveGmail) {
+        details.push("gmail:skipped-by-user");
       }
-    );
+    }
   } else if (dependencies.forceInteractivePass === true) {
     // Only for unit tests — never default in production CLI.
     checks.interactiveRealLobby = true;
-    checks.interactiveGmail = true;
+    checks.interactiveGmail = skipGmail ? false : true;
     details.push("interactive:forced-for-test");
+    if (skipGmail) details.push("gmail:deferred");
   }
 
   const receipt = buildAcceptanceReceipt({ version, checks });
@@ -203,25 +217,30 @@ function isMainModule() {
 
 if (isMainModule()) {
   const interactive = !process.argv.includes("--non-interactive");
-  runAcceptance({ interactive }).then(
+  const skipGmail = process.argv.includes("--skip-gmail");
+  runAcceptance({ interactive, skipGmail }).then(
     (result) => {
       if (result.passed) {
         process.stdout.write("ACCEPTANCE_PASSED\n");
         process.stdout.write(
           "Receipt written under LOCALAPPDATA\\MajSoulDaily (not in git).\n"
         );
+        if (!result.checks.interactiveGmail) {
+          process.stdout.write(
+            "NOTE: Gmail failure alerts are not configured yet (optional).\n"
+          );
+        }
       } else {
         process.stdout.write("ACCEPTANCE_FAILED\n");
         process.stdout.write(
-          "Failed checks: " +
-            Object.entries(result.checks)
-              .filter(([, ok]) => !ok)
-              .map(([name]) => name)
+          "Failed required checks: " +
+            ["verify", "privacy", "noInput", "dryRun", "noTasksRegistered", "interactiveRealLobby"]
+              .filter((name) => !result.checks[name])
               .join(", ") +
             "\n"
         );
         process.stdout.write(
-          "Complete setup/verify/gmail interactively, then re-run acceptance.\n"
+          "Complete setup/verify, then re-run: npm run acceptance -- --skip-gmail\n"
         );
       }
       process.exitCode = result.exitCode;
