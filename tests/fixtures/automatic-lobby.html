@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Passive lobby fixture</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      display: grid;
+      place-items: center;
+      color: #f4e8c5;
+      background:
+        linear-gradient(135deg, transparent 0 35%, #1a6c70 35% 52%, transparent 52%),
+        linear-gradient(25deg, #17233c 0 45%, #7f3f54 45% 60%, #10263a 60%);
+    }
+    main {
+      width: 78vw;
+      height: 68vh;
+      padding: 4vh 5vw;
+      border: 8px double #d5b66f;
+      border-radius: 28px;
+      background: linear-gradient(160deg, #113d45 0 42%, #235c50 42% 100%);
+      box-shadow: 0 0 0 18px #13243d, 0 24px 70px #0009;
+    }
+    h1 { margin: 0; font-size: 7vw; letter-spacing: .08em; }
+    p { font-size: 2.2vw; }
+    .tiles { display: grid; grid-template-columns: repeat(8, 1fr); gap: 1vw; }
+    .tile { aspect-ratio: .72; border-radius: 9px; background: #f6edcf; border: 5px solid #c7ae70; }
+    #seed-target, #seed-input, #seed-form, #seed-scroll {
+      position: fixed; width: 1px; height: 1px; left: -20px; top: -20px;
+    }
+    #event-matrix { position: fixed; left: -10000px; white-space: pre; }
+  </style>
+</head>
+<body>
+  <main aria-label="Daily lobby ready">
+    <h1>MAHJONG SOUL</h1>
+    <p>Daily lobby ready</p>
+    <div class="tiles" aria-hidden="true">
+      <span class="tile"></span><span class="tile"></span><span class="tile"></span><span class="tile"></span>
+      <span class="tile"></span><span class="tile"></span><span class="tile"></span><span class="tile"></span>
+    </div>
+  </main>
+  <button id="seed-target" type="button">Recorder target</button>
+  <input id="seed-input" aria-label="Recorder input">
+  <form id="seed-form"><button type="submit">Recorder form</button></form>
+  <div id="seed-scroll"></div>
+  <pre id="event-matrix" aria-live="off"></pre>
+  <script>
+    (() => {
+      const eventTypes = [
+        "pointerdown", "pointerup", "pointermove", "pointercancel",
+        "gotpointercapture", "lostpointercapture",
+        "mousedown", "mouseup", "mousemove", "mouseover", "mouseout",
+        "mouseenter", "mouseleave", "click", "dblclick", "auxclick",
+        "contextmenu", "keydown", "keypress", "keyup", "touchstart",
+        "touchmove", "touchend", "touchcancel", "beforeinput", "input",
+        "change", "submit", "reset", "copy", "cut", "paste",
+        "compositionstart", "compositionupdate", "compositionend",
+        "dragstart", "drag", "dragenter", "dragover", "dragleave", "drop",
+        "dragend", "focus", "blur", "focusin", "focusout", "wheel", "scroll"
+      ].sort();
+      const counts = Object.fromEntries(eventTypes.map((type) => [type, 0]));
+      const matrix = document.querySelector("#event-matrix");
+      let armed = false;
+
+      function ignoredFocus(event) {
+        if (!["focus", "blur", "focusin", "focusout"].includes(event.type)) {
+          return false;
+        }
+        return [
+          window,
+          document,
+          document.documentElement,
+          document.body
+        ].includes(event.target);
+      }
+
+      for (const type of eventTypes) {
+        document.addEventListener(type, (event) => {
+          if (armed && !ignoredFocus(event)) {
+            counts[type] += 1;
+            publish();
+          }
+        }, true);
+      }
+
+      function seedTarget(type) {
+        if (["submit", "reset"].includes(type)) {
+          return document.querySelector("#seed-form");
+        }
+        if (["focus", "blur", "focusin", "focusout", "beforeinput", "input", "change", "compositionstart", "compositionupdate", "compositionend"].includes(type)) {
+          return document.querySelector("#seed-input");
+        }
+        if (type === "scroll") return document.querySelector("#seed-scroll");
+        return document.querySelector("#seed-target");
+      }
+
+      function publish() {
+        matrix.textContent = "EVENT_MATRIX_READY\n" + JSON.stringify(counts);
+      }
+
+      window.addEventListener("load", () => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          armed = true;
+          const requested = new URL(location.href).searchParams.get("seed");
+          const seeds = requested === "all"
+            ? eventTypes
+            : eventTypes.includes(requested) ? [requested] : [];
+          for (const type of seeds) {
+            seedTarget(type).dispatchEvent(new Event(type, {
+              bubbles: true,
+              cancelable: true,
+              composed: true
+            }));
+          }
+          publish();
+          const lateSeed = new URL(location.href).searchParams.get("lateSeed");
+          if (eventTypes.includes(lateSeed)) {
+            setTimeout(() => {
+              seedTarget(lateSeed).dispatchEvent(new Event(lateSeed, {
+                bubbles: true,
+                cancelable: true,
+                composed: true
+              }));
+            }, 250);
+          }
+        }));
+      }, { once: true });
+    })();
+  </script>
+</body>
+</html>
