@@ -129,6 +129,19 @@ function pickFreePort() {
   });
 }
 
+async function defaultKillProcess(pid) {
+  if (!pid) return;
+  if (process.platform === "win32") {
+    await execFileAsync(
+      "taskkill",
+      ["/pid", String(pid), "/T", "/F"],
+      { windowsHide: true, timeout: 5_000 }
+    );
+    return;
+  }
+  process.kill(pid, "SIGKILL");
+}
+
 /**
  * Passive Edge session.
  *
@@ -145,6 +158,8 @@ export class PassiveEdge {
   #connectOverCDP;
   #waitForPort;
   #findEdgePath;
+  #killProcess;
+  #sleep;
   #child;
   #browser;
   #context;
@@ -158,7 +173,9 @@ export class PassiveEdge {
     spawnProcess = nodeSpawn,
     connectOverCDP = (endpoint) => chromium.connectOverCDP(endpoint),
     waitForPort = defaultWaitForPort,
-    findEdgePath = defaultFindEdgePath
+    findEdgePath = defaultFindEdgePath,
+    killProcess,
+    sleep: sleepFn = sleep
   } = {}) {
     this.#profileDir = profileDir;
     this.#headless = headless;
@@ -168,6 +185,8 @@ export class PassiveEdge {
     this.#connectOverCDP = connectOverCDP;
     this.#waitForPort = waitForPort;
     this.#findEdgePath = findEdgePath;
+    this.#killProcess = killProcess ?? defaultKillProcess;
+    this.#sleep = sleepFn;
   }
 
   async open(url) {
@@ -256,7 +275,7 @@ export class PassiveEdge {
       // Give the real Mahjong Soul shell time to paint. Skip for loopback
       // fixtures so timed seed events in tests remain observable.
       if (url === TARGET) {
-        await sleep(this.#headless ? 2_000 : 1_500);
+        await this.#sleep(this.#headless ? 2_000 : 1_500);
       }
     } catch (error) {
       await this.close().catch(() => undefined);
@@ -302,15 +321,7 @@ export class PassiveEdge {
 
     if (child && child.pid && !child.killed) {
       try {
-        if (process.platform === "win32") {
-          await execFileAsync(
-            "taskkill",
-            ["/pid", String(child.pid), "/T", "/F"],
-            { windowsHide: true }
-          );
-        } else {
-          child.kill("SIGKILL");
-        }
+        await this.#killProcess(child.pid);
       } catch {
         // ignore already-exited processes
       }
