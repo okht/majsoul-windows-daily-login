@@ -231,6 +231,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall.ps1
 
 <div align="center">
 
-<img src="../assets/footer-made-by-cht.svg" alt="Made by CHT © 2026" height="28" />
+Made by <a href="https://github.com/okht"><u>okht</u></a> © 2026
 
 </div>
