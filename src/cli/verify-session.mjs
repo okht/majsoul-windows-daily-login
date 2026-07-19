@@ -52,6 +52,9 @@ function mapDetectorResult(result) {
 
 export async function verifyStoredSession(dependencies = {}) {
   const values = { ...defaultDependencies(), ...dependencies };
+  const log = typeof values.log === "function"
+    ? values.log
+    : () => {};
   let record;
 
   try {
@@ -72,11 +75,14 @@ export async function verifyStoredSession(dependencies = {}) {
   let failed = false;
 
   try {
+    log("正在启动无头 Edge（屏幕外），请等待…");
     session = await values.createSession({
       profileDir: values.paths.profile,
       headless: true
     });
+    log("正在打开雀魂页面…");
     await session.open(TARGET);
+    log("正在比对大厅指纹（最长约 3 分钟，期间可能无新输出）…");
     detectorResult = await values.withFingerprintTokenizer((tokenizer) =>
       values.detectLobby(session, record, tokenizer)
     );
@@ -85,6 +91,7 @@ export async function verifyStoredSession(dependencies = {}) {
   } finally {
     if (session) {
       try {
+        log("正在关闭浏览器…");
         await session.close();
       } catch {
         failed = true;
@@ -103,11 +110,26 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  verifyStoredSession().then((result) => {
-    const message = result.reasonCode
-      ? result.status + ":" + result.reasonCode
-      : result.status;
-    process.stdout.write(message + "\n");
-    process.exitCode = result.exitCode;
-  });
+  verifyStoredSession({
+    log: (message) => {
+      process.stdout.write(message + "\n");
+    }
+  }).then(
+    (result) => {
+      const message = result.reasonCode
+        ? result.status + ":" + result.reasonCode
+        : result.status;
+      process.stdout.write(message + "\n");
+      process.exitCode = result.exitCode;
+    },
+    (error) => {
+      process.stderr.write("VERIFY_FAILED\n");
+      process.stderr.write(
+        (error?.code ? String(error.code) + " " : "") +
+          (error?.message || String(error)) +
+          "\n"
+      );
+      process.exitCode = 2;
+    }
+  );
 }

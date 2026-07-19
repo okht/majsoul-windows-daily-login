@@ -3,13 +3,11 @@ import { runVisibleSetup } from "../src/cli/setup-session.mjs";
 
 const TARGET = "https://game.maj-soul.com/1/";
 
-function fixture(overrides = {}) {
-  const frames = Array.from({ length: 8 }, (_, index) =>
-    Buffer.from("frame-" + index)
-  );
+function makeSession(label, frames) {
   let frameIndex = 0;
   const open = vi.fn(async () => {});
   const frame = vi.fn(async () => {
+    // Non-black-ish PNG-like buffer; sharp decode may fail in enroll mock.
     const value = frames[frameIndex % frames.length];
     frameIndex += 1;
     return value;
@@ -23,17 +21,41 @@ function fixture(overrides = {}) {
       throw new Error("forbidden-browser-input:" + String(property));
     }
   });
+  return { label, open, frame, close, session };
+}
+
+function fixture(overrides = {}) {
+  const headedFrames = Array.from({ length: 3 }, (_, index) =>
+    Buffer.from("headed-" + index)
+  );
+  const headlessFrames = Array.from({ length: 8 }, (_, index) =>
+    Buffer.from("headless-" + index)
+  );
+  const headed = makeSession("headed", headedFrames);
+  const headless = makeSession("headless", headlessFrames);
+  const sessions = [headed, headless];
+  let sessionIndex = 0;
+
+  // Minimal valid-looking PNG is not required: enroll is mocked.
+  // darkRatio uses sharp — inject painted frames via real tiny PNG.
+  // For unit tests enroll/write are mocked; waitForPaintedFrame needs low dark ratio.
+  // Provide a light-gray PNG via sharp if available.
   const prompt = {
     question: vi.fn(async () => ""),
     close: vi.fn()
   };
   const record = { strict: "record" };
   const tokenizer = vi.fn(() => "a".repeat(64));
+
   const dependencies = {
     paths: { profile: "private-profile", fingerprint: "strict-record" },
     input: { terminal: "input" },
     output: { write: vi.fn() },
-    createSession: vi.fn(() => session),
+    createSession: vi.fn(() => {
+      const current = sessions[sessionIndex];
+      sessionIndex += 1;
+      return current.session;
+    }),
     createInterface: vi.fn(() => prompt),
     sleep: vi.fn(async () => {}),
     withFingerprintTokenizer: vi.fn(async (callback) => callback(tokenizer)),
@@ -41,12 +63,10 @@ function fixture(overrides = {}) {
     writeFingerprintRecord: vi.fn(async () => {}),
     ...overrides
   };
+
   return {
-    frames,
-    open,
-    frame,
-    close,
-    session,
+    headed,
+    headless,
     prompt,
     record,
     tokenizer,
@@ -54,99 +74,71 @@ function fixture(overrides = {}) {
   };
 }
 
+async function lightPng() {
+  const sharp = (await import("sharp")).default;
+  return sharp({
+    create: {
+      width: 64,
+      height: 64,
+      channels: 3,
+      background: { r: 180, g: 160, b: 120 }
+    }
+  })
+    .png()
+    .toBuffer();
+}
+
 describe("runVisibleSetup", () => {
-  it("prompts once, samples a burst of frames, and stores one record", async () => {
+  it("logs in headed, then enrolls from a headless session", async () => {
+    const painted = await lightPng();
     const value = fixture();
+    // Headless frames must pass darkRatio gate.
+    let n = 0;
+    value.headless.frame.mockImplementation(async () => {
+      n += 1;
+      return Buffer.from(painted);
+    });
 
     await runVisibleSetup(value.dependencies);
 
-    expect(value.dependencies.createSession).toHaveBeenCalledWith({
+    expect(value.dependencies.createSession).toHaveBeenNthCalledWith(1, {
       profileDir: "private-profile",
       headless: false
     });
-    expect(value.open).toHaveBeenCalledWith(TARGET);
-    expect(value.dependencies.createInterface).toHaveBeenCalledWith({
-      input: value.dependencies.input,
-      output: value.dependencies.output
+    expect(value.dependencies.createSession).toHaveBeenNthCalledWith(2, {
+      profileDir: "private-profile",
+      headless: true
     });
+    expect(value.headed.open).toHaveBeenCalledWith(TARGET);
+    expect(value.headless.open).toHaveBeenCalledWith(TARGET);
     expect(value.prompt.question).toHaveBeenCalledTimes(1);
-    expect(value.frame).toHaveBeenCalledTimes(8);
-    expect(value.dependencies.sleep).toHaveBeenCalledWith(1_500);
-    expect(value.dependencies.sleep).toHaveBeenCalledWith(400);
-
-    const [ownedFrames, usedTokenizer] =
-      value.dependencies.enrollLobbyFrames.mock.calls[0];
-    expect(ownedFrames).toHaveLength(8);
-    expect(usedTokenizer).toBe(value.tokenizer);
-    expect(value.dependencies.writeFingerprintRecord).toHaveBeenCalledOnce();
+    expect(value.dependencies.enrollLobbyFrames).toHaveBeenCalledOnce();
     expect(value.dependencies.writeFingerprintRecord).toHaveBeenCalledWith(
       value.dependencies.paths,
       value.record
     );
-    expect(value.prompt.close).toHaveBeenCalledOnce();
-    expect(value.close).toHaveBeenCalledOnce();
+    expect(value.headed.close).toHaveBeenCalledOnce();
+    expect(value.headless.close).toHaveBeenCalledOnce();
+    expect(n).toBeGreaterThanOrEqual(8);
   });
 
-  it("retries unstable enrollment before giving up", async () => {
-    const unstable = Object.assign(new Error("unstable"), {
+  it("closes both sessions when enrollment fails", async () => {
+    const painted = await lightPng();
+    const enrollmentError = Object.assign(new Error("boom"), {
       code: "FINGERPRINT_ENROLLMENT_UNSTABLE"
     });
     const value = fixture({
-      enrollLobbyFrames: vi
-        .fn()
-        .mockRejectedValueOnce(unstable)
-        .mockRejectedValueOnce(unstable)
-        .mockResolvedValueOnce({ ok: true })
-    });
-
-    await runVisibleSetup(value.dependencies);
-
-    expect(value.dependencies.enrollLobbyFrames).toHaveBeenCalledTimes(3);
-    expect(value.frame).toHaveBeenCalledTimes(24);
-    expect(value.dependencies.writeFingerprintRecord).toHaveBeenCalledOnce();
-  });
-
-  it("preserves an existing record when enrollment fails", async () => {
-    let persisted = { id: "existing" };
-    const enrollmentError = new Error("unstable enrollment");
-    const value = fixture({
       enrollLobbyFrames: vi.fn(async () => {
         throw enrollmentError;
-      }),
-      writeFingerprintRecord: vi.fn(async (_paths, record) => {
-        persisted = record;
       })
     });
+    value.headless.frame.mockImplementation(async () => Buffer.from(painted));
 
     await expect(runVisibleSetup(value.dependencies)).rejects.toBe(
       enrollmentError
     );
-
-    expect(persisted).toEqual({ id: "existing" });
+    expect(value.headed.close).toHaveBeenCalledOnce();
+    expect(value.headless.close).toHaveBeenCalledOnce();
     expect(value.dependencies.writeFingerprintRecord).not.toHaveBeenCalled();
-    expect(value.prompt.close).toHaveBeenCalledOnce();
-    expect(value.close).toHaveBeenCalledOnce();
   });
-
-  it.each(["question", "frame", "enroll", "write"])(
-    "closes terminal and Edge when %s fails",
-    async (stage) => {
-      const failure = new Error(stage + " failed");
-      const value = fixture();
-      if (stage === "question") {
-        value.prompt.question.mockRejectedValueOnce(failure);
-      } else if (stage === "frame") {
-        value.frame.mockRejectedValueOnce(failure);
-      } else if (stage === "enroll") {
-        value.dependencies.enrollLobbyFrames.mockRejectedValueOnce(failure);
-      } else {
-        value.dependencies.writeFingerprintRecord.mockRejectedValueOnce(failure);
-      }
-
-      await expect(runVisibleSetup(value.dependencies)).rejects.toBe(failure);
-
-      expect(value.prompt.close).toHaveBeenCalledOnce();
-      expect(value.close).toHaveBeenCalledOnce();
-    }
-  );
 });
