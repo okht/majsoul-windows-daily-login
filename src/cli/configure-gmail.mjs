@@ -1,7 +1,7 @@
 import { mkdir as nodeMkdir, writeFile as nodeWriteFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createInterface as nodeCreateInterface } from "node:readline/promises";
-import { beijingClock as defaultBeijingClock } from "../beijing-time.mjs";
+import { localClock as defaultLocalClock } from "../beijing-time.mjs";
 import { credentialStore } from "../credentials.mjs";
 import { appPaths } from "../paths.mjs";
 import { sendFailureMail as defaultSendFailureMail } from "../notifier.mjs";
@@ -98,7 +98,7 @@ function defaultDependencies() {
     writeFile: nodeWriteFile,
     sendFailureMail: defaultSendFailureMail,
     readMaskedSecret,
-    beijingClock: defaultBeijingClock
+    clock: defaultLocalClock
   };
 }
 
@@ -132,7 +132,7 @@ export async function configureGmail(dependencies = {}) {
     "utf8"
   );
 
-  const clock = values.beijingClock();
+  const clock = values.clock();
   await values.sendFailureMail(
     { sender, recipient },
     {

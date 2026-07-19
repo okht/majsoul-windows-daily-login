@@ -97,8 +97,6 @@ function Register-MajSoulTasks {
     [Parameter(Mandatory = $true)][string]$LauncherPath
   )
 
-  Assert-ChinaStandardTime
-
   $appDir = Get-InstalledAppDir
   if (-not (Test-AcceptanceReceipt -AppDir $appDir)) {
     throw "Registration refused: missing or stale local acceptance receipt. Complete acceptance first (Task 8)."
@@ -108,6 +106,7 @@ function Register-MajSoulTasks {
   }
 
   $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+  $tz = Get-TimeZone
   $rendered = Render-BothTasks -LauncherPath $LauncherPath -UserId $user
 
   Register-ScheduledTask -TaskName "MajSoulDaily-Primary" -Xml $rendered.Primary -Force | Out-Null
@@ -119,8 +118,10 @@ function Register-MajSoulTasks {
   Assert-TaskXmlContract -Xml $exportedCatchup -ExpectedTrigger "catchup"
 
   Write-PublicStatus "Registered tasks: MajSoulDaily-Primary, MajSoulDaily-Catchup"
-  Write-PublicStatus "Primary window: Beijing 10:00-12:30 with PT2H30M random delay"
-  Write-PublicStatus "Catch-up: logon, unlock, and 12:30-23:45 every 15 minutes"
+  Write-PublicStatus "Primary window: local 10:00-12:30 with PT2H30M random delay (system timezone)"
+  Write-PublicStatus "Catch-up: logon, unlock, and local 12:30-23:45 every 15 minutes"
+  # Do not print the timezone display name if it embeds a city path; Id is enough.
+  Write-PublicStatus ("System timezone id: " + $tz.Id)
 }
 
 # --- main ---

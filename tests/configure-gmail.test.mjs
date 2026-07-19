@@ -117,7 +117,7 @@ describe("configureGmail", () => {
       writeFile,
       sendFailureMail,
       readMaskedSecret: readSecret,
-      beijingClock: () => ({
+      clock: () => ({
         dateKey: "2026-07-16",
         iso: "2026-07-16T04:00:00.000Z",
         minuteOfDay: 720

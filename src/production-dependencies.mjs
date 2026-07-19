@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { beijingClock } from "./beijing-time.mjs";
+import { localClock } from "./beijing-time.mjs";
 import { canReachTarget as defaultCanReachTarget } from "./connectivity.mjs";
 import { credentialStore } from "./credentials.mjs";
 import { detectLobby as defaultDetectLobby } from "./browser/lobby-detector.mjs";
@@ -63,7 +63,7 @@ function buildProductionDependencies(options = {}) {
     targetUrl: TARGET,
     logPath: paths.logs,
     paths,
-    clock: options.clock ?? beijingClock,
+    clock: options.clock ?? localClock,
     readState: (dateKey) =>
       (options.readState ?? defaultReadState)(dateKey, paths),
     writeState: (dateKey, state) =>
@@ -107,7 +107,7 @@ function buildProductionDependencies(options = {}) {
       const dateKey =
         typeof record?.dateKey === "string"
           ? record.dateKey
-          : beijingClock().dateKey;
+          : localClock().dateKey;
       await appendLogLine(paths, dateKey, record);
     }
   };

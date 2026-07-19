@@ -16,13 +16,6 @@ function Get-AcceptanceReceiptPath {
   return (Join-Path (Get-MajSoulRoot) "acceptance-receipt.json")
 }
 
-function Assert-ChinaStandardTime {
-  $tz = Get-TimeZone
-  if ($tz.Id -ne "China Standard Time") {
-    throw "Installation requires China Standard Time. Current timezone id: $($tz.Id)"
-  }
-}
-
 function Find-CscCompiler {
   $candidates = @(
     "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\csc.exe",

@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   appendLogLine,
-  keepBeijingDateKeys,
+  keepDateKeys,
   pruneLogs,
   redactText
 } from "../src/logger.mjs";
@@ -30,9 +30,9 @@ describe("redactText", () => {
   });
 });
 
-describe("keepBeijingDateKeys", () => {
-  it("keeps the latest 14 inclusive Beijing date keys ending at the given day", () => {
-    const keys = keepBeijingDateKeys("2026-07-16", 14);
+describe("keepDateKeys", () => {
+  it("keeps the latest 14 inclusive local date keys ending at the given day", () => {
+    const keys = keepDateKeys("2026-07-16", 14);
     expect(keys).toHaveLength(14);
     expect(keys[0]).toBe("2026-07-03");
     expect(keys[13]).toBe("2026-07-16");
@@ -50,7 +50,7 @@ describe("pruneLogs", () => {
 
     await pruneLogs(
       { logs },
-      new Set(keepBeijingDateKeys("2026-07-16", 14))
+      new Set(keepDateKeys("2026-07-16", 14))
     );
 
     const names = new Set(await readdir(logs));

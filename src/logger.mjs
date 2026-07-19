@@ -34,7 +34,7 @@ function redactValue(value) {
   return value;
 }
 
-export function keepBeijingDateKeys(endDateKey, days = 14) {
+export function keepDateKeys(endDateKey, days = 14) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(endDateKey);
   if (!match) {
     const error = new TypeError("endDateKey must be YYYY-MM-DD.");
@@ -54,6 +54,9 @@ export function keepBeijingDateKeys(endDateKey, days = 14) {
   }
   return keys;
 }
+
+/** @deprecated Use keepDateKeys. */
+export const keepBeijingDateKeys = keepDateKeys;
 
 export async function pruneLogs(paths, keepDateKeys) {
   await mkdir(paths.logs, { recursive: true });

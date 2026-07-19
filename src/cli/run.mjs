@@ -2,10 +2,10 @@ import { pathToFileURL } from "node:url";
 import { runDaily } from "../daily-run.mjs";
 import {
   appendLogLine,
-  keepBeijingDateKeys,
+  keepDateKeys,
   pruneLogs
 } from "../logger.mjs";
-import { beijingClock } from "../beijing-time.mjs";
+import { localClock } from "../beijing-time.mjs";
 import { appPaths } from "../paths.mjs";
 import { productionDependencies } from "../production-dependencies.mjs";
 
@@ -22,8 +22,8 @@ export async function main(argv = process.argv.slice(2), dependencies) {
   }
 
   const paths = dependencies?.paths ?? appPaths();
-  const clock = (dependencies?.clock ?? beijingClock)();
-  await pruneLogs(paths, new Set(keepBeijingDateKeys(clock.dateKey, 14)));
+  const clock = (dependencies?.clock ?? localClock)();
+  await pruneLogs(paths, new Set(keepDateKeys(clock.dateKey, 14)));
 
   const deps = dependencies ?? productionDependencies({ paths });
   const result = await runDaily({ trigger, dependencies: deps });
@@ -55,7 +55,7 @@ if (isMainModule()) {
     async (error) => {
       try {
         const paths = appPaths();
-        const clock = beijingClock();
+        const clock = localClock();
         await appendLogLine(paths, clock.dateKey, {
           level: "error",
           event: "daily-run-crash",

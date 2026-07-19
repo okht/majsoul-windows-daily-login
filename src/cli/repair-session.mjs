@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { beijingClock } from "../beijing-time.mjs";
+import { localClock } from "../beijing-time.mjs";
 import { runDaily } from "../daily-run.mjs";
 import { appendLogLine } from "../logger.mjs";
 import { appPaths } from "../paths.mjs";
@@ -14,7 +14,7 @@ import { runVisibleSetup } from "./setup-session.mjs";
 
 export async function repairSession(dependencies = {}) {
   const paths = dependencies.paths ?? appPaths();
-  const clockFn = dependencies.beijingClock ?? beijingClock;
+  const clockFn = dependencies.beijingClock ?? dependencies.localClock ?? localClock;
   const lock = dependencies.withRunLock ?? withRunLock;
   const setup = dependencies.runVisibleSetup ?? runVisibleSetup;
   const clearBlocked = dependencies.clearBlockedState ?? clearBlockedState;
