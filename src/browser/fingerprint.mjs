@@ -299,6 +299,35 @@ function isMostlyDark(raw) {
   return dark / raw.length >= DARK_FRAME_RATIO;
 }
 
+/** Shared dark-frame probe for enrollment and detection (sharp stays here). */
+export async function isMostlyDarkPng(
+  png,
+  ratio = DARK_FRAME_RATIO
+) {
+  if (!Buffer.isBuffer(png)) return false;
+  try {
+    const { data } = await sharp(png)
+      .raw()
+      .ensureAlpha()
+      .toBuffer({ resolveWithObject: true });
+    let dark = 0;
+    let total = 0;
+    for (let index = 0; index < data.length; index += 32) {
+      total += 1;
+      if (
+        data[index] < DARK_PIXEL_THRESHOLD &&
+        data[index + 1] < DARK_PIXEL_THRESHOLD &&
+        data[index + 2] < DARK_PIXEL_THRESHOLD
+      ) {
+        dark += 1;
+      }
+    }
+    return total > 0 && dark / total >= ratio;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Pick three mutually similar frames from a burst. Animated lobbies often
  * make an arbitrary 3–5 sample sequence fail; the densest stable triple wins.

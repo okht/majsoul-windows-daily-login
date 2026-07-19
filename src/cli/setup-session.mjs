@@ -1,9 +1,11 @@
 import { pathToFileURL } from "node:url";
 import { createInterface as nodeCreateInterface } from "node:readline/promises";
-import sharp from "sharp";
 import { appPaths } from "../paths.mjs";
 import { PassiveEdge } from "../browser/passive-edge.mjs";
-import { enrollLobbyFrames } from "../browser/fingerprint.mjs";
+import {
+  enrollLobbyFrames,
+  isMostlyDarkPng
+} from "../browser/fingerprint.mjs";
 import { withFingerprintTokenizer } from "../browser/fingerprint-key.mjs";
 import { writeFingerprintRecord } from "../browser/fingerprint-store.mjs";
 
@@ -34,22 +36,6 @@ function defaultDependencies() {
   };
 }
 
-async function darkRatio(png) {
-  const { data } = await sharp(png)
-    .raw()
-    .ensureAlpha()
-    .toBuffer({ resolveWithObject: true });
-  let dark = 0;
-  let total = 0;
-  for (let index = 0; index < data.length; index += 16) {
-    total += 1;
-    if (data[index] < 20 && data[index + 1] < 20 && data[index + 2] < 20) {
-      dark += 1;
-    }
-  }
-  return total === 0 ? 1 : dark / total;
-}
-
 async function captureFrames(session, sleep, count, intervalMs) {
   const frames = [];
   for (let index = 0; index < count; index += 1) {
@@ -66,12 +52,12 @@ async function waitForPaintedFrame(session, sleep, log) {
   while (Date.now() < deadline) {
     const png = await session.frame();
     try {
-      const ratio = await darkRatio(png);
-      if (ratio <= MAX_DARK_RATIO) {
-        log("画面已绘制（darkRatio=" + ratio.toFixed(3) + "）。");
+      const dark = await isMostlyDarkPng(png, MAX_DARK_RATIO);
+      if (!dark) {
+        log("画面已绘制。");
         return;
       }
-      log("等待画面绘制… darkRatio=" + ratio.toFixed(3));
+      log("等待画面绘制…");
     } finally {
       if (Buffer.isBuffer(png)) png.fill(0);
     }
