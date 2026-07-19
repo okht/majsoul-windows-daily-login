@@ -2,113 +2,218 @@
 
 # Mahjong Soul Windows Daily Opener
 
-### *在本机随机时间被动打开雀魂，复用现有浏览器会话进入大厅*
+### *本机随机时间被动打开雀魂，复用现有浏览器会话进入大厅*
 
-![Status](https://img.shields.io/badge/Status-Implementation%20complete-7C3AED)
-![Stage](https://img.shields.io/badge/Stage-Local%20acceptance%20pending-64748B)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)
-![Browser](https://img.shields.io/badge/Browser-Edge%20passive-0D9488)
-
-![Schedule](https://img.shields.io/badge/Schedule-Random%20window-F59E0B)
+![Browser](https://img.shields.io/badge/Browser-Microsoft%20Edge-0D9488)
 ![Runtime](https://img.shields.io/badge/Runtime-Local%20only-16A34A)
-![Email](https://img.shields.io/badge/Email-Failure%20only-0891B2)
-![Guardrail](https://img.shields.io/badge/Input-No%20synthetic%20input-EF4444)
+![Input](https://img.shields.io/badge/Input-No%20synthetic%20input-EF4444)
+![Notify](https://img.shields.io/badge/Email-Failure%20only-0891B2)
+![License](https://img.shields.io/badge/License-Private%20use-64748B)
 
 </div>
 
+在你自己的 Windows 电脑上，按**本机系统时区**每天 10:00–12:30 随机打开一次雀魂网页版，复用专用 Edge 配置里的登录态，只观察是否进入大厅，然后退出。
+
+- **成功**：静默，不发邮件  
+- **失败 / 需要人工操作**：纯文字 Gmail 提醒  
+- **绝不**：自动点击、填表、输入密码、截图上传、云端跑浏览器  
+
 > [!IMPORTANT]
-> 代码实现已完成自动化测试与隐私/零输入扫描，但**本机真机验收仍待你完成**。在写入 acceptance receipt 并 `Register` 之前，请勿把本仓库当作「已在你电脑上验收通过」的成品。公开仓库中不应出现个人邮箱、绝对用户路径、Cookie、Token 或真实密钥。
+> 公开仓库只包含源码与文档。雀魂账号、Gmail、Edge 配置、状态与日志都在本机  
+> `%LOCALAPPDATA%\MajSoulDaily` 与 Windows 凭据管理器中，**不会**也不应提交到 Git。
 
-## 项目目标
+---
 
-这个项目计划在用户家中的 Windows 电脑上运行：每天按**本机系统时区**的 10:00–12:30 随机打开一次雀魂网页，复用 Microsoft Edge 独立配置文件中的现有登录状态，等待页面自动进入大厅，然后关闭浏览器。
+## 它做什么 / 不做什么
 
-也就是说：电脑设在中国就是当地上午 10 点左右；设在其他时区，也是那个时区的上午 10:00–12:30，而不是强制换成北京时间，更不会因为时区不是中国而拒绝安装。
-
-电脑错过随机窗口后，当天解锁 Windows 且联网时补跑。成功过程保持静默；失败或需要人工操作时，通过 Gmail 发送纯文字提醒。
-
-## 已确认边界
-
-| 范围 | 设计约束 |
+| 做 | 不做 |
 | --- | --- |
-| **浏览器输入** | 定时运行不点击、不输入、不填写表单、不合成鼠标或键盘事件 |
-| **登录凭证** | 雀魂邮箱和密码只由用户在官方页面手动输入，程序不保存 |
-| **运行位置** | 只在本地 Windows 电脑运行，不使用云端浏览器 |
-| **调度时区** | 本机系统时区的当地 10:00–12:30；不强制北京时间，不因非中国时区拒绝安装 |
-| **锁屏行为** | 锁屏时不启动浏览器；解锁且联网后补跑 |
-| **唤醒行为** | 不主动唤醒睡眠中的电脑 |
-| **通知** | 仅失败或需要人工处理时发送纯文字 Gmail，成功不通知 |
-| **页面数据** | 不保存页面截图、Cookie、Local Storage 或请求内容 |
-| **平台控制** | 不包含验证码绕过、代理、浏览器指纹伪装或反检测功能 |
+| 定时被动打开 `https://game.maj-soul.com/1/` | 自动点击「登录」「确认」「进入游戏」 |
+| 复用本机专用 Edge 会话 | 保存雀魂邮箱/密码 |
+| 只读判断大厅（视觉指纹 + 可访问文本） | 保存页面截图、Cookie、Local Storage |
+| 锁屏不启动；解锁且联网后可补跑 | 唤醒睡眠中的电脑 |
+| 失败时发纯文字 Gmail | 成功时发邮件 |
+| 本机系统时区的当地 10:00–12:30 | 强制北京时间 / 因非中国时区拒绝安装 |
+| 本地运行 | 云端浏览器、代理、指纹伪装、验证码绕过 |
 
-如果页面需要点击「登录」「确认」「进入游戏」或任何其他按钮，运行器必须立即停止，并提醒用户手动处理。
+若页面仍需人工操作，运行器必须停止并提醒，**不会**替你点任何按钮。
 
-## 计划流程
+---
+
+## 工作流程
 
 ```text
-Windows 任务计划（本机系统时区）
-  ├─ 当地 10:00–12:30 随机触发
-  └─ 错过后在解锁且联网时补跑
+Windows 任务计划（本机时区）
+  ├─ 主任务：当地 10:00 + 最长 2.5h 随机延迟
+  └─ 补跑：登录/解锁 + 12:30 起每 15 分钟
             ↓
-检查当天状态和 Windows 会话
+检查当日状态、锁屏、网络、互斥锁
             ↓
-使用独立 Edge 会话打开雀魂
+用已安装的无窗口启动器 → 系统 Edge（CDP 观察）
             ↓
-只读判断大厅状态
-  ├─ 成功：记录状态并静默退出
-  ├─ 需要操作：停止并发送 Gmail
-  └─ 临时故障：等待当天后续补跑
+只读判断大厅
+  ├─ 成功 → 记 SUCCESS，静默退出
+  ├─ 需人工 → BLOCKED_MANUAL + Gmail
+  └─ 瞬时故障 → 等待后续补跑
 ```
 
-## 隐私设计
+运行时文件（均在仓库外）：
 
-- 浏览器配置、运行状态、日志和 Gmail 凭据保存在仓库外的 `%LOCALAPPDATA%\MajSoulDaily`。
-- Gmail 应用专用密码存入 Windows 凭据管理器（不写进仓库或配置文件）。
-- 本地 `config.json` 只保存发件/收件地址，不含应用专用密码。
-- `.gitignore` 排除常见的凭据、浏览器数据、状态、日志和截图目录。
-- 公开仓库不应提交个人邮箱、绝对用户路径、Cookie、Token、密钥或真实浏览器配置。
-- 日志计划保留 14 天，并对账号、会话和请求数据进行脱敏。
+| 路径 | 内容 |
+| --- | --- |
+| `%LOCALAPPDATA%\MajSoulDaily\edge-profile` | 专用 Edge 配置（登录态） |
+| `%LOCALAPPDATA%\MajSoulDaily\lobby-fingerprint.json` | 大厅指纹（不可逆特征，非截图） |
+| `%LOCALAPPDATA%\MajSoulDaily\state` | 按本地日期的运行状态 |
+| `%LOCALAPPDATA%\MajSoulDaily\logs` | 脱敏日志（约保留 14 天） |
+| `%LOCALAPPDATA%\MajSoulDaily\config.json` | 仅 Gmail 发件/收件地址 |
+| Windows 凭据管理器 | Gmail 应用专用密码、指纹密钥 |
+| `%LOCALAPPDATA%\MajSoulDaily\app` | 部署后的运行副本（计划任务指向此处） |
 
-## 当前资料
+---
 
-- [完整设计文档](docs/superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md)
-- [实施计划](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login.md)
+## 环境要求
 
-## 实施状态
+- Windows 10/11  
+- [Node.js](https://nodejs.org/) 22+  
+- 已安装 Microsoft Edge  
+- 能访问雀魂与 Gmail SMTP（若启用失败通知）  
 
-- [x] 确认需求与安全边界
-- [x] 完成 Windows 方案设计
-- [x] 状态存储、调度门卫、被动 Edge 与大厅指纹
-- [x] 零输入静态守卫与本地 Gmail 失败通知（凭据走系统凭据管理器）
-- [x] 每日编排、通知 outbox 与会话修复流程
-- [x] 稳定部署、无窗口启动器与计划任务 XML
-- [x] 仓库隐私扫描接入 `npm run verify`
-- [x] 本机验收 CLI（写 LOCALAPPDATA 回执；交互确认需用户完成）
-- [ ] 你在本机完成 setup / 三次大厅验证 / Gmail 测试信
-- [ ] 运行 acceptance 写入回执后，再 `Register` 计划任务
+---
 
-## 本地命令（已实现；真机步骤需你执行）
+## 快速开始
 
-在仓库根目录（实现分支 worktree）中：
+在**本仓库根目录**执行（不要在桌面等空目录跑 `npm`）。
+
+### 1. 安装依赖并自检
 
 ```powershell
-# 确定性检查：单测 + 零输入守卫 + 隐私扫描
+npm ci
+# 若 npm ci 因文件锁失败，可用：npm install
+
 npm run verify
-
-# 只渲染/校验任务 XML，不部署、不注册、不写凭据
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Mode DryRun
-
-# 本机验收：跑 verify/隐私/DryRun，并交互确认大厅与 Gmail
-# 通过后写入 %LOCALAPPDATA%\MajSoulDaily\acceptance-receipt.json（不会进 Git）
-npm run acceptance
-
-# 验收通过且已 Deploy 后，才允许注册计划任务
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Mode Deploy
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Mode Register
 ```
 
-尚未宣称「你已在本机跑通雀魂静默大厅」——那一步依赖你的登录态与真机环境。
+`verify` = 单元/集成测试 + 零输入静态检查 + 仓库隐私扫描。
+
+### 2. 建立登录态与大厅指纹
+
+```powershell
+# 可见 Edge：请手动登录并进入大厅，再回终端按 Enter
+node src/cli/setup-session.mjs
+```
+
+程序会关闭可见窗口，再用**与每日任务相同的无头路径**登记指纹。
+
+若登录已在专用配置里，只需刷新指纹：
+
+```powershell
+node src/cli/re-enroll-headless.mjs
+```
+
+### 3. 验证无头能否认出大厅
+
+```powershell
+node src/cli/verify-session.mjs
+```
+
+期望输出含 `SUCCESS`。可连续执行 2～3 次。  
+无头打开与比对可能需要 **1～3 分钟**，属正常。
+
+### 4. 配置失败通知（可选但推荐）
+
+```powershell
+node src/cli/configure-gmail.mjs
+```
+
+使用 Gmail **应用专用密码**（不是登录密码）。密码只进凭据管理器；仓库里不应出现真实邮箱。
+
+### 5. 本机验收回执（注册任务前必做）
+
+```powershell
+npm run acceptance
+```
+
+通过后写入：
+
+`%LOCALAPPDATA%\MajSoulDaily\acceptance-receipt.json`  
+
+（仅本机，不进 Git。）
+
+### 6. 部署并注册计划任务
+
+```powershell
+# 预览任务 XML，不注册、不部署
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Mode DryRun
+
+# 部署到 %LOCALAPPDATA%\MajSoulDaily\app
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Mode Deploy
+
+# 需要有效 acceptance receipt
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Mode Register
+```
+
+任务名：
+
+- `MajSoulDaily-Primary`  
+- `MajSoulDaily-Catchup`  
+
+### 7. 会话失效时
+
+```powershell
+node src/cli/repair-session.mjs
+```
+
+---
+
+## 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run verify` | 测试 + 零输入守卫 + 隐私扫描 |
+| `npm run check:no-input` | 禁止调度路径合成输入 API |
+| `npm run check:privacy` | 扫描跟踪文件中的路径/密钥/非 example 邮箱 |
+| `npm run acceptance` | 本机验收并写回执 |
+| `node src/cli/setup-session.mjs` | 可见登录 + 无头登记指纹 |
+| `node src/cli/re-enroll-headless.mjs` | 仅无头重登记指纹 |
+| `node src/cli/verify-session.mjs` | 无头大厅验证 |
+| `node src/cli/configure-gmail.mjs` | 配置失败邮件 |
+| `node src/cli/repair-session.mjs` | 可见修复登录态 |
+| `scripts\install.ps1 -Mode DryRun\|Deploy\|Register\|Full` | 安装/注册 |
+| `scripts\uninstall.ps1` | 卸载任务与本地数据（配置文件可选保留） |
+
+---
+
+## 隐私与安全
+
+1. **不要**把真实邮箱、应用专用密码、绝对用户路径、截图、Edge profile 提交到 Git。  
+2. 测试与文档仅使用 `@example.com` 等占位符。  
+3. 日志会脱敏邮箱、Cookie、Authorization 等模式。  
+4. 调度任务只允许参数 `primary` / `catchup`，且指向已安装目录，不绑定开发用 worktree 路径。  
+5. 公开仓库的 `npm run check:privacy` 应在推送前保持通过。
+
+本地卸载示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall.ps1
+```
+
+---
+
+## 设计文档
+
+- [设计说明](docs/superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md)  
+- [实施计划](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login.md)  
+- [计划修正案](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login-corrections.md)  
+
+---
 
 ## 风险说明
 
-自动访问可能受到雀魂或 Yostar 服务条款限制。项目不会实现降低可检测性或绕过平台控制的机制。使用者应自行评估账号风险，并遵守适用的服务条款。
+自动访问可能受到雀魂 / Yostar 服务条款限制。本项目**不**实现降低可检测性、绕过验证码或任何平台对抗功能。请自行评估账号风险，并遵守适用条款与当地法律。
+
+---
+
+## 许可
+
+私人/自用工具。若公开 fork，请自行移除一切个人数据与本地路径，并保留安全边界说明。
