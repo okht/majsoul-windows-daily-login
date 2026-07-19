@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="../assets/logo.svg" width="120" height="120" alt="雀魂 Windows 每日静默打开器 logo">
+
 # 雀魂 Windows 每日静默打开器
 
 ### *在本机 Windows 上按当地上午窗口被动打开雀魂，复用专用 Edge 会话，确认大厅后退出*
@@ -202,6 +204,7 @@ majsoul-windows-daily-login/
 ├── tools/launcher/       # 无窗口 C# 启动器
 ├── tests/
 └── docs/
+    ├── assets/logo.svg   # README 顶部 logo
     ├── lang/README_ZH.md
     └── superpowers/      # 设计与实施计划（历史）
 ```

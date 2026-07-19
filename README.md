@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.svg" width="120" height="120" alt="Mahjong Soul Windows Daily Opener logo">
+
 # Mahjong Soul Windows Daily Opener
 
 ### *Passive daily open of Mahjong Soul on your Windows PC—reuse a dedicated Edge session, confirm the lobby, then exit.*
@@ -202,6 +204,7 @@ majsoul-windows-daily-login/
 ├── tools/launcher/       # Windowless C# launcher → installed MajSoulDaily.exe
 ├── tests/                # Vitest unit + Edge integration matrix
 └── docs/
+    ├── assets/logo.svg   # README hero logo
     ├── lang/README_ZH.md
     └── superpowers/      # design + implementation plans (history)
 ```
