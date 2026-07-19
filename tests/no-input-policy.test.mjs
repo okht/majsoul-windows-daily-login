@@ -875,7 +875,7 @@ void Session;
     expect(diagnostics.map((entry) => entry.code)).toContain("IMPORT_REALPATH_ESCAPE");
   });
 
-  it("locks package scripts to full tests followed by the guard", async () => {
+  it("locks package scripts to full tests followed by the guards", async () => {
     const packageJson = JSON.parse(await readFile(
       path.join(REPOSITORY, "package.json"),
       "utf8"
@@ -887,8 +887,11 @@ void Session;
     expect(packageJson.scripts["check:no-input"]).toBe(
       "node scripts/check-no-input.mjs"
     );
+    expect(packageJson.scripts["check:privacy"]).toBe(
+      "node scripts/check-privacy.mjs"
+    );
     expect(packageJson.scripts.verify).toBe(
-      "npm test && npm run check:no-input"
+      "npm test && npm run check:no-input && npm run check:privacy"
     );
   });
 });

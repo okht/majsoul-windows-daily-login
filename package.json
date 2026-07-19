@@ -8,9 +8,11 @@
   },
   "scripts": {
     "check:no-input": "node scripts/check-no-input.mjs",
+    "check:privacy": "node scripts/check-privacy.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm test && npm run check:no-input"
+    "verify": "npm test && npm run check:no-input && npm run check:privacy",
+    "acceptance": "node src/cli/acceptance.mjs"
   },
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",

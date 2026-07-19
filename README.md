@@ -4,8 +4,8 @@
 
 ### *在本机随机时间被动打开雀魂，复用现有浏览器会话进入大厅*
 
-![Status](https://img.shields.io/badge/Status-Implementation%20in%20progress-7C3AED)
-![Stage](https://img.shields.io/badge/Stage-Core%20modules%20partial-64748B)
+![Status](https://img.shields.io/badge/Status-Implementation%20complete-7C3AED)
+![Stage](https://img.shields.io/badge/Stage-Local%20acceptance%20pending-64748B)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)
 ![Browser](https://img.shields.io/badge/Browser-Edge%20passive-0D9488)
 
@@ -17,7 +17,7 @@
 </div>
 
 > [!IMPORTANT]
-> 项目处于「实现进行中」阶段。核心运行器、Gmail 通知、部署脚本与计划任务 XML 已具备自动化测试；**正式注册计划任务仍要求本机验收回执（Task 8）**。请勿将当前仓库当作已验证可安装成品；公开仓库中不应出现个人邮箱、绝对用户路径、Cookie、Token 或真实密钥。
+> 代码实现已完成自动化测试与隐私/零输入扫描，但**本机真机验收仍待你完成**。在写入 acceptance receipt 并 `Register` 之前，请勿把本仓库当作「已在你电脑上验收通过」的成品。公开仓库中不应出现个人邮箱、绝对用户路径、Cookie、Token 或真实密钥。
 
 ## 项目目标
 
@@ -81,10 +81,33 @@ Windows 任务计划（本机系统时区）
 - [x] 状态存储、调度门卫、被动 Edge 与大厅指纹
 - [x] 零输入静态守卫与本地 Gmail 失败通知（凭据走系统凭据管理器）
 - [x] 每日编排、通知 outbox 与会话修复流程
-- [x] 稳定部署、无窗口启动器与计划任务 XML（注册仍需验收回执）
-- [ ] 验证静默 Edge 能否加载雀魂 Canvas/WebGL
-- [ ] 完成本机端到端验收并写入 acceptance receipt
-- [ ] 在验收通过后正式注册计划任务
+- [x] 稳定部署、无窗口启动器与计划任务 XML
+- [x] 仓库隐私扫描接入 `npm run verify`
+- [x] 本机验收 CLI（写 LOCALAPPDATA 回执；交互确认需用户完成）
+- [ ] 你在本机完成 setup / 三次大厅验证 / Gmail 测试信
+- [ ] 运行 acceptance 写入回执后，再 `Register` 计划任务
+
+## 本地命令（已实现；真机步骤需你执行）
+
+在仓库根目录（实现分支 worktree）中：
+
+```powershell
+# 确定性检查：单测 + 零输入守卫 + 隐私扫描
+npm run verify
+
+# 只渲染/校验任务 XML，不部署、不注册、不写凭据
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Mode DryRun
+
+# 本机验收：跑 verify/隐私/DryRun，并交互确认大厅与 Gmail
+# 通过后写入 %LOCALAPPDATA%\MajSoulDaily\acceptance-receipt.json（不会进 Git）
+npm run acceptance
+
+# 验收通过且已 Deploy 后，才允许注册计划任务
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Mode Deploy
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Mode Register
+```
+
+尚未宣称「你已在本机跑通雀魂静默大厅」——那一步依赖你的登录态与真机环境。
 
 ## 风险说明
 
