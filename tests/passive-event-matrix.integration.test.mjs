@@ -51,6 +51,30 @@ async function freshEdge() {
   });
 }
 
+/**
+ * Windows Edge/Chromium often keeps CrashpadMetrics-active.pma locked for a
+ * short window after taskkill. Retry, then accept leftover TEMP junk so the
+ * suite does not fail after every test already passed.
+ */
+async function removeProfileBestEffort(profileDir) {
+  const delaysMs = [50, 100, 200, 400, 800, 1_200];
+  for (let attempt = 0; attempt <= delaysMs.length; attempt += 1) {
+    try {
+      await rm(profileDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error && typeof error === "object" ? error.code : undefined;
+      if (code !== "EBUSY" && code !== "EPERM" && code !== "ENOTEMPTY") {
+        throw error;
+      }
+      if (attempt === delaysMs.length) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+  }
+}
+
 function matrixFromText(text) {
   const marker = "EVENT_MATRIX_READY\n";
   const start = text.indexOf(marker);
@@ -128,9 +152,9 @@ afterAll(async () => {
       server.close((error) => error ? reject(error) : resolve())
     );
   }
-  await Promise.all(profiles.splice(0).map((profile) =>
-    rm(profile, { recursive: true, force: true })
-  ));
+  await Promise.all(
+    profiles.splice(0).map((profile) => removeProfileBestEffort(profile))
+  );
 }, 30_000);
 
 describe("real Edge passive event matrix", () => {

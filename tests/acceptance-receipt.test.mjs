@@ -9,23 +9,8 @@ import {
 } from "../src/acceptance-receipt.mjs";
 
 describe("acceptance receipt", () => {
-  it("requires every interactive and deterministic check before pass", () => {
-    const incomplete = buildAcceptanceReceipt({
-      version: "0.1.0",
-      checks: {
-        verify: true,
-        privacy: true,
-        noInput: true,
-        dryRun: true,
-        noTasksRegistered: true,
-        interactiveRealLobby: false,
-        interactiveGmail: true
-      }
-    });
-    expect(incomplete.passed).toBe(false);
-    expect(isReceiptValid(incomplete, "0.1.0")).toBe(false);
-
-    const complete = buildAcceptanceReceipt({
+  it("can pass without Gmail when lobby and automated gates succeed", () => {
+    const deferredMail = buildAcceptanceReceipt({
       version: "0.1.0",
       checks: {
         verify: true,
@@ -34,12 +19,26 @@ describe("acceptance receipt", () => {
         dryRun: true,
         noTasksRegistered: true,
         interactiveRealLobby: true,
-        interactiveGmail: true
+        interactiveGmail: false
       }
     });
-    expect(complete.passed).toBe(true);
-    expect(isReceiptValid(complete, "0.1.0")).toBe(true);
-    expect(isReceiptValid(complete, "0.2.0")).toBe(false);
+    expect(deferredMail.passed).toBe(true);
+    expect(isReceiptValid(deferredMail, "0.1.0")).toBe(true);
+
+    const missingLobby = buildAcceptanceReceipt({
+      version: "0.1.0",
+      checks: {
+        verify: true,
+        privacy: true,
+        noInput: true,
+        dryRun: true,
+        noTasksRegistered: true,
+        interactiveRealLobby: false,
+        interactiveGmail: false
+      }
+    });
+    expect(missingLobby.passed).toBe(false);
+    expect(isReceiptValid(missingLobby, "0.1.0")).toBe(false);
   });
 
   it("writes receipt only under the provided local app root", async () => {
@@ -54,7 +53,7 @@ describe("acceptance receipt", () => {
         dryRun: true,
         noTasksRegistered: true,
         interactiveRealLobby: true,
-        interactiveGmail: true
+        interactiveGmail: false
       }
     });
     const file = await writeAcceptanceReceipt(receipt, paths);

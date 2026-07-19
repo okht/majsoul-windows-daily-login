@@ -48,6 +48,9 @@ function makeDependencies(overrides = {}) {
     detectLobby: vi.fn(async () => ({ status: "SUCCESS" })),
     notifyOnce: vi.fn(async () => {}),
     log: vi.fn(async () => {}),
+    // Tests inject a no-op sleep so SUCCESS does not wait 10–30s for real.
+    sleep: vi.fn(async () => {}),
+    random: () => 0,
     ...overrides
   };
 
@@ -64,6 +67,63 @@ describe("runDaily", () => {
     expect(deps.value.notifyOnce).not.toHaveBeenCalled();
     expect(deps.session.close).toHaveBeenCalledOnce();
     expect(deps.released.value).toBe(true);
+  });
+
+  it("dwells a random 10–30s after SUCCESS before closing Edge", async () => {
+    const order = [];
+    const sleep = vi.fn(async (ms) => {
+      order.push(["sleep", ms]);
+    });
+    const close = vi.fn(async () => {
+      order.push("close");
+    });
+    const deps = makeDependencies({
+      sleep,
+      // 0 → 10_000ms lower bound of inclusive [10s, 30s]
+      random: () => 0,
+      createSession: () => ({
+        open: vi.fn(async () => {}),
+        close
+      })
+    });
+
+    await expect(
+      runDaily({ trigger: "primary", dependencies: deps.value })
+    ).resolves.toEqual({ status: "SUCCESS" });
+
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledWith(10_000);
+    expect(order).toEqual([["sleep", 10_000], "close"]);
+  });
+
+  it("uses the 30s upper dwell bound when random is at the high end", async () => {
+    const sleep = vi.fn(async () => {});
+    const deps = makeDependencies({
+      sleep,
+      // Just under 1 → floor(r * 20001) === 20000 → 30_000ms
+      random: () => 0.999999,
+      createSession: () => ({
+        open: vi.fn(async () => {}),
+        close: vi.fn(async () => {})
+      })
+    });
+
+    await runDaily({ trigger: "primary", dependencies: deps.value });
+    expect(sleep).toHaveBeenCalledWith(30_000);
+  });
+
+  it("does not dwell after MANUAL_ACTION_REQUIRED", async () => {
+    const sleep = vi.fn(async () => {});
+    const deps = makeDependencies({
+      sleep,
+      detectLobby: vi.fn(async () => ({
+        status: "MANUAL_ACTION_REQUIRED",
+        reasonCode: "ACCESSIBLE_MANUAL_MARKER"
+      }))
+    });
+
+    await runDaily({ trigger: "primary", dependencies: deps.value });
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it("never launches Edge for an existing SUCCESS state", async () => {

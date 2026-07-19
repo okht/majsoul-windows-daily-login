@@ -5,15 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 import { runAcceptance } from "../src/cli/acceptance.mjs";
 
 describe("runAcceptance", () => {
-  it("fails closed when interactive confirmations are declined", async () => {
+  it("fails closed when lobby confirmation is declined", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "majsoul-accept-"));
-    const answers = [false, false];
     const result = await runAcceptance({
       paths: { root, logs: path.join(root, "logs") },
       packageJsonPath: path.join(process.cwd(), "package.json"),
       skipVerify: true,
+      skipGmail: true,
       interactive: true,
-      confirm: async () => answers.shift(),
+      confirm: async () => false,
       runDryRun: async () => ({
         code: 0,
         stdout: "DryRun complete: no scheduled task was registered.\n",
@@ -28,7 +28,7 @@ describe("runAcceptance", () => {
     expect(result.receiptPath).toBeNull();
   });
 
-  it("writes a local receipt when every gate passes", async () => {
+  it("writes a local receipt without Gmail when gates pass", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "majsoul-accept-"));
     const writeReceipt = vi.fn(async (receipt, paths) => {
       return path.join(paths.root, "acceptance-receipt.json");
@@ -37,6 +37,7 @@ describe("runAcceptance", () => {
       paths: { root, logs: path.join(root, "logs") },
       packageJsonPath: path.join(process.cwd(), "package.json"),
       skipVerify: true,
+      skipGmail: true,
       interactive: true,
       confirm: async () => true,
       runDryRun: async () => ({
@@ -58,7 +59,7 @@ describe("runAcceptance", () => {
       dryRun: true,
       noTasksRegistered: true,
       interactiveRealLobby: true,
-      interactiveGmail: true
+      interactiveGmail: false
     });
   });
 
@@ -68,6 +69,7 @@ describe("runAcceptance", () => {
       paths: { root, logs: path.join(root, "logs") },
       packageJsonPath: path.join(process.cwd(), "package.json"),
       skipVerify: true,
+      skipGmail: true,
       interactive: false,
       forceInteractivePass: true,
       runDryRun: async () => ({

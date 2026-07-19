@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
-import sharp from "sharp";
 import {
   LOBBY_MATCH_THRESHOLD,
+  isMostlyDarkPng,
   scoreLobbyFrame
 } from "./fingerprint.mjs";
 
@@ -14,24 +14,7 @@ async function isMostlyDarkFrame(png, options = {}) {
   if (typeof options.isDarkFrame === "function") {
     return options.isDarkFrame(png);
   }
-  if (!Buffer.isBuffer(png)) return false;
-  try {
-    const { data } = await sharp(png)
-      .raw()
-      .ensureAlpha()
-      .toBuffer({ resolveWithObject: true });
-    let dark = 0;
-    let total = 0;
-    for (let index = 0; index < data.length; index += 32) {
-      total += 1;
-      if (data[index] < 20 && data[index + 1] < 20 && data[index + 2] < 20) {
-        dark += 1;
-      }
-    }
-    return total > 0 && dark / total >= LOADING_DARK_RATIO;
-  } catch {
-    return false;
-  }
+  return isMostlyDarkPng(png, LOADING_DARK_RATIO);
 }
 
 const ENGLISH_MANUAL_MARKER =

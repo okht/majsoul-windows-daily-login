@@ -1,10 +1,12 @@
 import { pathToFileURL } from "node:url";
 import { appPaths } from "../paths.mjs";
 import { PassiveEdge } from "../browser/passive-edge.mjs";
-import { enrollLobbyFrames } from "../browser/fingerprint.mjs";
+import {
+  enrollLobbyFrames,
+  isMostlyDarkPng
+} from "../browser/fingerprint.mjs";
 import { withFingerprintTokenizer } from "../browser/fingerprint-key.mjs";
 import { writeFingerprintRecord } from "../browser/fingerprint-store.mjs";
-import sharp from "sharp";
 
 const TARGET = "https://game.maj-soul.com/1/";
 const SAMPLE_COUNT = 8;
@@ -23,22 +25,6 @@ function log(message) {
   process.stdout.write(message + "\n");
 }
 
-async function darkRatio(png) {
-  const { data } = await sharp(png)
-    .raw()
-    .ensureAlpha()
-    .toBuffer({ resolveWithObject: true });
-  let dark = 0;
-  let total = 0;
-  for (let index = 0; index < data.length; index += 16) {
-    total += 1;
-    if (data[index] < 20 && data[index + 1] < 20 && data[index + 2] < 20) {
-      dark += 1;
-    }
-  }
-  return total === 0 ? 1 : dark / total;
-}
-
 async function main() {
   const paths = appPaths();
   const session = new PassiveEdge({
@@ -54,9 +40,9 @@ async function main() {
     while (Date.now() < deadline) {
       const png = await session.frame();
       try {
-        const ratio = await darkRatio(png);
-        log("等待画面… darkRatio=" + ratio.toFixed(3));
-        if (ratio <= MAX_DARK_RATIO) break;
+        const dark = await isMostlyDarkPng(png, MAX_DARK_RATIO);
+        log(dark ? "等待画面…" : "画面已绘制。");
+        if (!dark) break;
       } finally {
         if (Buffer.isBuffer(png)) png.fill(0);
       }

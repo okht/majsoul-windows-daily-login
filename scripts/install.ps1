@@ -74,7 +74,6 @@ function Assert-TaskXmlContract([string]$Xml, [string]$ExpectedTrigger) {
   $required = @(
     "<StartWhenAvailable>true</StartWhenAvailable>",
     "<RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>",
-    "<WakeToRun>false</WakeToRun>",
     "<Priority>8</Priority>",
     "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>",
     "<ExecutionTimeLimit>PT10M</ExecutionTimeLimit>",
@@ -86,6 +85,11 @@ function Assert-TaskXmlContract([string]$Xml, [string]$ExpectedTrigger) {
     if ($Xml -notlike "*$item*") {
       throw "Registered task XML failed contract check for: $item"
     }
+  }
+  # Rendered templates include <WakeToRun>false</WakeToRun>. Windows Task
+  # Scheduler export often omits the default false; only reject explicit true.
+  if ($Xml -match "<WakeToRun>\s*true\s*</WakeToRun>") {
+    throw "Registered task XML must not enable WakeToRun."
   }
   if ($Xml -match "accept|acceptance|verify-session|setup-session|run\.mjs|node\.exe") {
     throw "Registered task XML contains a forbidden command fragment."
