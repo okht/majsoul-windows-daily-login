@@ -6,16 +6,16 @@
 
 ### *Passive daily open of Mahjong Soul on your Windows PC—reuse a dedicated Edge session, confirm the lobby, then exit.*
 
-[![License](https://img.shields.io/badge/License-Private%20use-64748B.svg)](#-notes)
-[![Node](https://img.shields.io/badge/Node.js-%E2%89%A522-2563EB?logo=nodedotjs&logoColor=white)](package.json)
-[![Version](https://img.shields.io/badge/Version-0.1.0-7C3AED)](package.json)
-[![Type](https://img.shields.io/badge/Type-Local%20Windows%20tool-0D9488)](#-highlights)
-[![Stars](https://img.shields.io/github/stars/okht/majsoul-windows-daily-login?style=social)](https://github.com/okht/majsoul-windows-daily-login)
+<a href="#-notes"><img src="docs/assets/badges/license.svg" alt="License: Private use" height="32"></a>
+<a href="package.json"><img src="docs/assets/badges/node.svg" alt="Node.js >=22" height="32"></a>
+<a href="package.json"><img src="docs/assets/badges/version.svg" alt="Version 0.1.0" height="32"></a>
+<a href="#-highlights"><img src="docs/assets/badges/type.svg" alt="Type: Local Windows tool" height="32"></a>
+<a href="https://github.com/okht/majsoul-windows-daily-login"><img src="docs/assets/badges/stars.svg" alt="GitHub Stars" height="32"></a>
 
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-F97316)](#-install)
-[![Browser](https://img.shields.io/badge/Browser-Microsoft%20Edge%20%2B%20CDP-16A34A)](#-workflow)
-[![Privacy](https://img.shields.io/badge/Privacy-Local%20data%20only-0891B2)](#-safety-and-boundaries)
-[![Boundary](https://img.shields.io/badge/Input-No%20synthetic%20clicks%2Fkeys-EF4444)](#-safety-and-boundaries)
+<a href="#-install"><img src="docs/assets/badges/platform.svg" alt="Platform: Windows 10/11" height="32"></a>
+<a href="#-workflow"><img src="docs/assets/badges/browser.svg" alt="Browser: Microsoft Edge + CDP" height="32"></a>
+<a href="#-safety-and-boundaries"><img src="docs/assets/badges/privacy.svg" alt="Privacy: Local data only" height="32"></a>
+<a href="#-safety-and-boundaries"><img src="docs/assets/badges/boundary.svg" alt="Boundary: No synthetic clicks/keys" height="32"></a>
 
 <br>
 

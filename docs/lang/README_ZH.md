@@ -6,16 +6,16 @@
 
 ### *在本机 Windows 上按当地上午窗口被动打开雀魂，复用专用 Edge 会话，确认大厅后退出*
 
-[![License](https://img.shields.io/badge/License-Private%20use-64748B.svg)](#-注意事项)
-[![Node](https://img.shields.io/badge/Node.js-%E2%89%A522-2563EB?logo=nodedotjs&logoColor=white)](../../package.json)
-[![Version](https://img.shields.io/badge/Version-0.1.0-7C3AED)](../../package.json)
-[![Type](https://img.shields.io/badge/Type-Local%20Windows%20tool-0D9488)](#-亮点)
-[![Stars](https://img.shields.io/github/stars/okht/majsoul-windows-daily-login?style=social)](https://github.com/okht/majsoul-windows-daily-login)
+<a href="#-注意事项"><img src="../assets/badges/license.svg" alt="License: Private use" height="32"></a>
+<a href="../../package.json"><img src="../assets/badges/node.svg" alt="Node.js >=22" height="32"></a>
+<a href="../../package.json"><img src="../assets/badges/version.svg" alt="Version 0.1.0" height="32"></a>
+<a href="#-亮点"><img src="../assets/badges/type.svg" alt="Type: Local Windows tool" height="32"></a>
+<a href="https://github.com/okht/majsoul-windows-daily-login"><img src="../assets/badges/stars.svg" alt="GitHub Stars" height="32"></a>
 
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-F97316)](#-安装)
-[![Browser](https://img.shields.io/badge/Browser-Microsoft%20Edge%20%2B%20CDP-16A34A)](#-工作流)
-[![Privacy](https://img.shields.io/badge/Privacy-Local%20data%20only-0891B2)](#-安全与边界)
-[![Boundary](https://img.shields.io/badge/Input-No%20synthetic%20clicks%2Fkeys-EF4444)](#-安全与边界)
+<a href="#-安装"><img src="../assets/badges/platform.svg" alt="Platform: Windows 10/11" height="32"></a>
+<a href="#-工作流"><img src="../assets/badges/browser.svg" alt="Browser: Microsoft Edge + CDP" height="32"></a>
+<a href="#-安全与边界"><img src="../assets/badges/privacy.svg" alt="Privacy: Local data only" height="32"></a>
+<a href="#-安全与边界"><img src="../assets/badges/boundary.svg" alt="Boundary: No synthetic clicks/keys" height="32"></a>
 
 <br>
 

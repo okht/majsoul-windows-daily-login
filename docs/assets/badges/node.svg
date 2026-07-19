@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="122" height="32" viewBox="0 0 122 32" role="img" aria-label="Node.js: &gt;=22">
+  <title>Node.js: &gt;=22</title>
+  <defs>
+    <clipPath id="r"><rect width="122" height="32" rx="10" ry="10"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="67" height="32" fill="#1F2937"/>
+    <rect x="67" width="55" height="32" fill="#2563EB"/>
+  </g>
+  <text x="33.5" y="21" text-anchor="middle"
+        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600"
+        fill="#FFFFFF" letter-spacing="0.2">Node.js</text>
+  <text x="94.5" y="21" text-anchor="middle"
+        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600"
+        fill="#FFFFFF" letter-spacing="0.2">&gt;=22</text>
+</svg>

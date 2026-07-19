@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="156" height="32" viewBox="0 0 156 32" role="img" aria-label="License: Private use">
+  <title>License: Private use</title>
+  <defs>
+    <clipPath id="r"><rect width="156" height="32" rx="10" ry="10"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="68" height="32" fill="#1F2937"/>
+    <rect x="68" width="88" height="32" fill="#64748B"/>
+  </g>
+  <text x="34.0" y="21" text-anchor="middle"
+        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600"
+        fill="#FFFFFF" letter-spacing="0.2">License</text>
+  <text x="112.0" y="21" text-anchor="middle"
+        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600"
+        fill="#FFFFFF" letter-spacing="0.2">Private use</text>
+</svg>
