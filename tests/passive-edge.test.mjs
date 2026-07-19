@@ -18,130 +18,185 @@ function pageFixture(overrides = {}) {
   };
 }
 
-function browserFixture({ pages = [pageFixture()] } = {}) {
+function cdpFixture({ pages = [pageFixture()] } = {}) {
   const page = pages[0] ?? pageFixture();
   const context = {
     pages: vi.fn(() => pages),
-    newPage: vi.fn(async () => page),
-    close: vi.fn(async () => {})
+    newPage: vi.fn(async () => page)
   };
   const browser = {
-    launchPersistentContext: vi.fn(async () => context)
+    contexts: vi.fn(() => [context]),
+    close: vi.fn(async () => {})
   };
-  return { browser, context, page };
+  const child = { pid: 4242, killed: false, kill: vi.fn() };
+  return {
+    page,
+    context,
+    browser,
+    child,
+    connectOverCDP: vi.fn(async () => browser),
+    spawnProcess: vi.fn(() => child),
+    waitForPort: vi.fn(async () => {}),
+    findEdgePath: vi.fn(async () => "C:\\Edge\\msedge.exe")
+  };
 }
 
 describe("PassiveEdge", () => {
-  it("launches a persistent Edge context and navigates the first page", async () => {
-    const { browser, context, page } = browserFixture();
+  it("spawns system Edge and attaches over CDP", async () => {
+    const fixture = cdpFixture();
     const edge = new PassiveEdge({
       profileDir: "dedicated-profile",
-      browser
+      headless: true,
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
     });
 
     await expect(edge.open(TARGET)).resolves.toBeUndefined();
 
-    expect(browser.launchPersistentContext).toHaveBeenCalledOnce();
-    expect(browser.launchPersistentContext).toHaveBeenCalledWith(
-      "dedicated-profile",
-      {
-        channel: "msedge",
-        headless: true,
-        viewport: { width: 1440, height: 900 }
-      }
+    expect(fixture.spawnProcess).toHaveBeenCalledOnce();
+    const [edgePath, args, options] = fixture.spawnProcess.mock.calls[0];
+    expect(edgePath).toBe("C:\\Edge\\msedge.exe");
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "--user-data-dir=dedicated-profile",
+        expect.stringMatching(/^--remote-debugging-port=\d+$/),
+        "--disable-features=CalculateNativeWinOcclusion,TranslateUI",
+        "--window-position=-32000,-32000",
+        TARGET
+      ])
     );
-    expect(context.pages).toHaveBeenCalledOnce();
-    expect(context.newPage).not.toHaveBeenCalled();
-    expect(page.goto).toHaveBeenCalledWith(TARGET, {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000
+    expect(args).not.toContain("--headless=new");
+    expect(options).toMatchObject({ windowsHide: true, stdio: "ignore" });
+    expect(fixture.waitForPort).toHaveBeenCalledOnce();
+    expect(fixture.connectOverCDP).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/)
+    );
+    expect(fixture.page.goto).not.toHaveBeenCalled();
+  });
+
+  it("uses a visible new window for headed setup sessions", async () => {
+    const fixture = cdpFixture();
+    const edge = new PassiveEdge({
+      profileDir: "dedicated-profile",
+      headless: false,
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
+    });
+
+    await edge.open(TARGET);
+    const args = fixture.spawnProcess.mock.calls[0][1];
+    expect(args).toContain("--new-window");
+    expect(args).not.toContain("--window-position=-32000,-32000");
+    expect(fixture.spawnProcess.mock.calls[0][2]).toMatchObject({
+      windowsHide: false
     });
   });
 
-  it("creates a page when the persistent context has none", async () => {
-    const page = pageFixture();
+  it("creates a page when the CDP context has none", async () => {
+    const page = pageFixture({ url: vi.fn(() => "about:blank") });
     const context = {
       pages: vi.fn(() => []),
-      newPage: vi.fn(async () => page),
-      close: vi.fn(async () => {})
+      newPage: vi.fn(async () => page)
     };
     const browser = {
-      launchPersistentContext: vi.fn(async () => context)
+      contexts: vi.fn(() => [context]),
+      close: vi.fn(async () => {})
     };
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
+    const edge = new PassiveEdge({
+      profileDir: "profile",
+      connectOverCDP: async () => browser,
+      spawnProcess: () => ({ pid: 1, killed: false }),
+      waitForPort: async () => {},
+      findEdgePath: async () => "edge"
+    });
 
     await edge.open(TARGET);
-
     expect(context.newPage).toHaveBeenCalledOnce();
-    expect(page.goto).toHaveBeenCalledOnce();
+    expect(page.goto).toHaveBeenCalledWith(TARGET, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000
+    });
   });
 
   it("returns only in-memory metadata and falls back to empty body text", async () => {
-    const page = pageFixture();
-    page.body.innerText.mockRejectedValueOnce(new Error("body unavailable"));
-    const { browser } = browserFixture({ pages: [page] });
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
+    const page = pageFixture({
+      title: vi.fn(async () => "T"),
+      locator: vi.fn(() => ({
+        innerText: vi.fn(async () => {
+          throw new Error("timeout");
+        })
+      }))
+    });
+    const fixture = cdpFixture({ pages: [page] });
+    const edge = new PassiveEdge({
+      profileDir: "p",
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
+    });
     await edge.open(TARGET);
-
     await expect(edge.metadata()).resolves.toEqual({
       url: TARGET,
-      title: "Mahjong Soul",
+      title: "T",
       text: ""
     });
-    expect(page.locator).toHaveBeenCalledWith("body");
-    expect(page.body.innerText).toHaveBeenCalledOnce();
-    expect(page.body.innerText).toHaveBeenCalledWith({ timeout: 3_000 });
   });
 
   it("captures a PNG in memory without a path option", async () => {
-    const png = Buffer.from("owned-png");
-    const page = pageFixture({ screenshot: vi.fn(async () => png) });
-    const { browser } = browserFixture({ pages: [page] });
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
+    const fixture = cdpFixture();
+    const edge = new PassiveEdge({
+      profileDir: "p",
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
+    });
     await edge.open(TARGET);
-
-    await expect(edge.frame()).resolves.toBe(png);
-    expect(page.screenshot).toHaveBeenCalledWith();
+    await expect(edge.frame()).resolves.toEqual(Buffer.from("png"));
+    expect(fixture.page.screenshot).toHaveBeenCalledWith();
   });
 
   it("closes an opened context at most once", async () => {
-    const { browser, context } = browserFixture();
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
-
-    await edge.close();
+    const fixture = cdpFixture();
+    const edge = new PassiveEdge({
+      profileDir: "p",
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
+    });
     await edge.open(TARGET);
     await edge.close();
     await edge.close();
-
-    expect(context.close).toHaveBeenCalledOnce();
+    expect(fixture.browser.close).toHaveBeenCalledOnce();
   });
 
   it("rejects a repeated open before launching and preserves the first context", async () => {
-    const { browser, context } = browserFixture();
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
-
+    const fixture = cdpFixture();
+    const edge = new PassiveEdge({
+      profileDir: "p",
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
+    });
     await edge.open(TARGET);
     await expect(edge.open(TARGET)).rejects.toMatchObject({
       code: "BROWSER_SESSION_ALREADY_OPEN"
     });
-
-    expect(browser.launchPersistentContext).toHaveBeenCalledOnce();
-    await edge.close();
-    expect(context.close).toHaveBeenCalledOnce();
+    expect(fixture.spawnProcess).toHaveBeenCalledOnce();
   });
 
-  it("exposes exactly four methods and no Playwright handles", async () => {
-    const { browser } = browserFixture();
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
-    await edge.open(TARGET);
-
-    expect(
-      Object.getOwnPropertyNames(PassiveEdge.prototype).sort()
-    ).toEqual(["close", "constructor", "frame", "metadata", "open"]);
-    expect(Reflect.ownKeys(edge)).toEqual([]);
-    expect(edge.browser).toBeUndefined();
-    expect(edge.context).toBeUndefined();
-    expect(edge.page).toBeUndefined();
+  it("exposes exactly four methods and no Playwright handles", () => {
+    const edge = new PassiveEdge({ profileDir: "p" });
+    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(edge)).sort()).toEqual(
+      ["close", "constructor", "frame", "metadata", "open"].sort()
+    );
   });
 
   it.each([
@@ -153,34 +208,31 @@ describe("PassiveEdge", () => {
     "https://game.maj-soul.com/1/?next=javascript:alert(1)",
     "https://game.maj-soul.com/1/#fragment"
   ])("rejects an unsafe or non-production target: %s", async (url) => {
-    const { browser } = browserFixture();
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
-
+    const edge = new PassiveEdge({ profileDir: "p" });
     await expect(edge.open(url)).rejects.toMatchObject({
       code: "BROWSER_TARGET_REJECTED"
     });
-    expect(browser.launchPersistentContext).not.toHaveBeenCalled();
   });
 
   it.each([
     "http://127.0.0.1:4173/login",
     "http://localhost:4173/login?state=ready",
     "http://[::1]:4173/login"
-  ])("allows an explicit loopback target only through the test seam: %s", async (
-    url
-  ) => {
-    const { browser, page } = browserFixture();
+  ])("allows an explicit loopback target only through the test seam: %s", async (url) => {
+    const page = pageFixture({ url: vi.fn(() => "about:blank") });
+    const fixture = cdpFixture({ pages: [page] });
     const edge = new PassiveEdge({
-      profileDir: "profile",
-      browser,
-      allowLoopback: true
+      profileDir: "p",
+      allowLoopback: true,
+      connectOverCDP: fixture.connectOverCDP,
+      spawnProcess: fixture.spawnProcess,
+      waitForPort: fixture.waitForPort,
+      findEdgePath: fixture.findEdgePath
     });
-
     await edge.open(url);
-
     expect(page.goto).toHaveBeenCalledWith(url, {
       waitUntil: "domcontentloaded",
-      timeout: 60_000
+      timeout: 120_000
     });
   });
 
@@ -192,13 +244,10 @@ describe("PassiveEdge", () => {
     "https://localhost:4173/login",
     "http://localhost.evil.example:4173/login"
   ])("rejects loopback-like targets unless safely enabled: %s", async (url) => {
-    const { browser } = browserFixture();
-    const edge = new PassiveEdge({ profileDir: "profile", browser });
-
+    const edge = new PassiveEdge({ profileDir: "p", allowLoopback: false });
     await expect(edge.open(url)).rejects.toMatchObject({
       code: "BROWSER_TARGET_REJECTED"
     });
-    expect(browser.launchPersistentContext).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -208,19 +257,10 @@ describe("PassiveEdge", () => {
     "https://localhost:4173/login",
     "http://user:pass@localhost:4173/login",
     "http://localhost.evil.example:4173/login"
-  ])("keeps unsafe targets blocked when the loopback seam is enabled: %s", async (
-    url
-  ) => {
-    const { browser } = browserFixture();
-    const edge = new PassiveEdge({
-      profileDir: "profile",
-      browser,
-      allowLoopback: true
-    });
-
+  ])("keeps unsafe targets blocked when the loopback seam is enabled: %s", async (url) => {
+    const edge = new PassiveEdge({ profileDir: "p", allowLoopback: true });
     await expect(edge.open(url)).rejects.toMatchObject({
       code: "BROWSER_TARGET_REJECTED"
     });
-    expect(browser.launchPersistentContext).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,9 @@ const DEFAULT_AUTOMATED_ENTRIES = Object.freeze([
   "src/cli/run.mjs"
 ]);
 const PLAYWRIGHT_ALLOWED_MEMBERS = new Set([
+  "connectOverCDP",
   "launchPersistentContext",
+  "contexts",
   "pages",
   "newPage",
   "goto",
@@ -26,10 +28,13 @@ const PLAYWRIGHT_ALLOWED_MEMBERS = new Set([
   "innerText",
   "screenshot",
   "close",
-  "catch"
+  "catch",
+  "find"
 ]);
 const PLAYWRIGHT_HANDLE_RESULTS = new Set([
+  "connectOverCDP",
   "launchPersistentContext",
+  "contexts",
   "pages",
   "newPage",
   "locator"
