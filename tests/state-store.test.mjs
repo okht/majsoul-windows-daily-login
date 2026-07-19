@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe("state-store", () => {
-  it("round-trips one Beijing date", async () => {
+  it("round-trips one local calendar date", async () => {
     const { paths } = await temporaryPaths();
 
     await writeState("2026-07-16", { status: "SUCCESS" }, paths);

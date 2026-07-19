@@ -1,6 +1,7 @@
 # Mahjong Soul Windows Daily Opener — Mandatory Plan Corrections
 
 **Date:** 2026-07-16  
+**Revised:** 2026-07-19 (local wall-clock scheduling; no China-only timezone gate)  
 **Status:** approved implementation addendum  
 **Applies after:** Task 1, commit `a74f530`
 
@@ -8,6 +9,10 @@ This addendum supersedes every conflicting instruction or code sketch in
 `2026-07-16-majsoul-windows-daily-login.md`. Implementers must read both the
 original task brief and the matching section below. Safety and privacy tests in
 this addendum are release blockers.
+
+**Timezone (binding):** all schedule windows, catch-up bounds, and daily state
+keys use the machine's **local system timezone**. Do not hard-require
+`China Standard Time` or `Asia/Shanghai`.
 
 ## Invariants for every remaining task
 
@@ -68,13 +73,13 @@ Run focused state/lock tests, then the full suite. Commit as
 ### Required behavior
 
 - Reject unknown trigger names before reading lock or session state.
-- Validate the Beijing minute range and apply the 10:00 lower boundary before
-  lock-state handling. An early manually invoked primary run cannot create
-  `PENDING_DUE`.
+- Validate the **local** minute-of-day range and apply the local 10:00 lower
+  boundary before lock-state handling. An early manually invoked primary run
+  cannot create `PENDING_DUE`.
 - `primary` may run when Task Scheduler starts it at or after its randomized due
   time. A locked due primary returns `MARK_DUE`.
-- `catchup` before 12:30 runs only for `PENDING_DUE`; at or after 12:30 it may
-  run until the final scheduled repetition at 23:45.
+- `catchup` before local 12:30 runs only for `PENDING_DUE`; at or after local
+  12:30 it may run until the final scheduled repetition at local 23:45.
 - `SUCCESS` and `BLOCKED_MANUAL` are terminal for browser launch, while a
   pending notification may still be serviced by Task 6.
 - Session and connectivity adapters remain injected and side-effect-free in
@@ -185,7 +190,7 @@ the final state write.
 
 ### Required orchestration order
 
-1. Compute the Beijing clock and validate the trigger.
+1. Compute the local wall clock and validate the trigger.
 2. Acquire `withRunLock()`; map an active lock to an intentional skip.
 3. Read state inside the lock. Service a pending terminal notification first.
 4. Exit terminal state without session/network/browser work when no mail is due.
@@ -240,10 +245,14 @@ Commit as `feat: orchestrate silent daily runs`.
 
 ### Scheduler contract
 
-- Installation hard-fails unless `Get-TimeZone` returns `China Standard Time`.
-- Use two tasks deliberately: the primary task owns the randomized 10:00–12:30
-  calendar trigger; the catch-up task owns logon, unlock, and 12:30–23:45
-  repetition. This prevents early logon from bypassing the random primary time.
+- Do **not** require `China Standard Time`. Schedule times are **local wall
+  clock** in whatever timezone Windows is configured to use. A PC in China runs
+  near local 10:00 CST/CST-equivalent; a PC in another region runs near that
+  region's local 10:00.
+- Use two tasks deliberately: the primary task owns the randomized local
+  10:00–12:30 calendar trigger; the catch-up task owns logon, unlock, and local
+  12:30–23:45 repetition. This prevents early logon from bypassing the random
+  primary time.
 - Both use interactive user context, require network, start when available, do
   not wake the computer, ignore overlap, and have a ten-minute limit. The task
   may remain visible in Task Scheduler; process execution remains windowless.
@@ -259,9 +268,10 @@ receipt bound to the deployed version and configuration.
 
 ### Blocking tests and commit
 
-- XML contracts, timezone refusal, stable installed paths, source-to-WinExe
-  compilation, named-mutex overlap, zero window/focus change, atomic deployment,
-  uninstall containment, and acceptance-trigger exclusion.
+- XML contracts, stable installed paths, source-to-WinExe compilation,
+  named-mutex overlap, zero window/focus change, atomic deployment, uninstall
+  containment, acceptance-trigger exclusion, and **no** China-only timezone
+  hard-fail on DryRun/Deploy/Register.
 
 Commit as `feat: register safe Windows schedules`.
 
@@ -315,7 +325,7 @@ available live gate; never claim unperformed registration.
 | Mail dedup gap | pending retry, sent dedup, SMTP failure state tests |
 | Worktree-coupled tasks | installed-path and repository-move tests |
 | Visible console/focus | WinExe process-handle and foreground-window acceptance |
-| Beijing/local-time drift | `China Standard Time` installer refusal test |
+| Timezone policy | Local wall-clock scheduling; installer must not refuse non-China timezones |
 | Invalid readline API | visible setup CLI unit test using `createInterface()` |
 | Registration before safety gate | missing/stale receipt refusal tests |
 | Weak zero-input scan | AST seeded fixtures plus broad runtime event matrix |

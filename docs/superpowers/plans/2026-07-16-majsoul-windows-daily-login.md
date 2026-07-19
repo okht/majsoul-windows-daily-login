@@ -2,11 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.
 
-**Goal:** Build a privacy-conscious Windows utility that passively opens Mahjong Soul once per Beijing day, never generates mouse or keyboard input, catches up after unlock and connectivity, and sends text-only Gmail alerts on failure.
+**Goal:** Build a privacy-conscious Windows utility that passively opens Mahjong Soul once per **local machine day**, never generates mouse or keyboard input, catches up after unlock and connectivity, and sends text-only Gmail alerts on failure.
 
-**Architecture:** Two Windows scheduled tasks call one Node.js runner with either a primary or catch-up trigger. The runner applies a pure schedule policy, persists date-scoped state under <code>%LOCALAPPDATA%\MajSoulDaily</code>, launches a dedicated Microsoft Edge profile through a passive Playwright wrapper, and confirms the lobby using non-reversible visual features held in memory. Gmail credentials stay in Windows Credential Manager.
+**Architecture:** Two Windows scheduled tasks call one installed windowless launcher (`primary` / `catchup`). The runner applies a pure schedule policy against the **OS system timezone wall clock**, persists date-scoped state under <code>%LOCALAPPDATA%\MajSoulDaily</code>, launches a dedicated Microsoft Edge profile through a passive Playwright wrapper, and confirms the lobby using non-reversible visual features held in memory. Gmail credentials stay in Windows Credential Manager.
 
 **Tech Stack:** Windows 11, PowerShell 5.1, Node.js 22 or newer, JavaScript ESM, Vitest 4.1.10, playwright-core 1.61.1, sharp 0.35.3, nodemailer 9.0.3, @napi-rs/keyring 1.3.0.
+
+## Amendment (2026-07-19): local wall clock, not Beijing-only
+
+This amendment **supersedes** earlier plan text that required Beijing time (`Asia/Shanghai`) or installer refusal unless the machine used `China Standard Time`.
+
+| Topic | Current rule |
+| --- | --- |
+| Daily window | Local **10:00–12:30** in the Windows system timezone |
+| Catch-up | Local **12:30–23:45**, plus logon/unlock |
+| Daily state key | Local calendar `YYYY-MM-DD` from `localClock()` |
+| Installer timezone gate | **None** — any system timezone is allowed |
+| Module | `src/beijing-time.mjs` still exists for history, but exports `localClock()` (and `beijingClock` as a compatible alias) |
+
+Earlier task checklists that still say “Beijing” should be read as **local wall clock** unless a step is purely historical.
 
 ## Global Constraints
 
@@ -14,14 +28,15 @@
 - Use the system Microsoft Edge binary and a dedicated profile under <code>%LOCALAPPDATA%\MajSoulDaily\edge-profile</code>.
 - The scheduled runner may start, navigate, observe, capture frames in memory, and close. It may not click, type, fill, press, tap, dispatch input events, or expose Playwright mouse and keyboard objects.
 - The user performs every login, confirmation, and repair action in a visible setup session.
-- Primary execution occurs once between 10:00 and 12:30 Beijing time through a 150-minute Windows random delay.
+- Primary execution occurs once between **local** 10:00 and 12:30 through a 150-minute Windows random delay (system timezone).
 - A locked session never launches Edge. A due run records <code>PENDING_DUE</code> and resumes after unlock and connectivity.
-- Catch-up checks begin at 12:30 and repeat every 15 minutes through 23:45.
+- Catch-up checks begin at **local** 12:30 and repeat every 15 minutes through **local** 23:45.
 - Do not wake a sleeping computer.
 - Success is silent. Failure and manual-action notifications are plain-text Gmail without screenshots.
 - Persist no Mahjong Soul email, password, page screenshot, Cookie, Local Storage value, or request body.
 - Keep logs for 14 days and redact secrets and browser state.
 - Do not add proxies, fingerprint spoofing, CAPTCHA handling, click randomization, or anti-detection behavior.
+- Do not refuse install/register solely because the timezone is not China Standard Time.
 
 ---
 
@@ -31,7 +46,7 @@
 | --- | --- |
 | <code>package.json</code> | Exact dependencies and verification scripts |
 | <code>src/paths.mjs</code> | Repository-independent local data paths |
-| <code>src/beijing-time.mjs</code> | Beijing date and minute-of-day conversion |
+| <code>src/beijing-time.mjs</code> | Local wall-clock date and minute-of-day (<code>localClock</code>) |
 | <code>src/state-store.mjs</code> | Atomic date-scoped state persistence |
 | <code>src/run-lock.mjs</code> | Cross-process single-run lock |
 | <code>src/schedule-policy.mjs</code> | Pure primary and catch-up decisions |
@@ -911,10 +926,10 @@ describe("sendFailureMail", () => {
 Add assertions that:
 
 - SMTP host is <code>smtp.gmail.com</code>, port 465, secure true;
-- subject contains the Beijing date and failure class;
+- subject contains the local date key and failure class;
 - body contains time, machine, phase, attempts, action, and local log path;
 - body contains no screenshot, Cookie, Local Storage, secret, or page HTML;
-- identical <code>failureFingerprint</code> sends at most once per Beijing day.
+- identical <code>failureFingerprint</code> is deduplicated per local day by the Task 6 outbox (sender itself is one-shot).
 
 - [ ] **Step 4: Implement text-only Gmail**
 
@@ -1223,7 +1238,7 @@ export async function pruneLogs(paths, keepDateKeys) {
 }
 ~~~
 
-On every CLI start, compute the latest 14 Beijing date keys and pass them as <code>keepDateKeys</code>. The logger writes one JSON object per line after redacting email addresses, authorization values, Cookie values, and known keyring secrets.
+On every CLI start, compute the latest 14 local date keys and pass them as <code>keepDateKeys</code>. The logger writes one JSON object per line after redacting email addresses, authorization values, Cookie values, and known keyring secrets.
 
 - [ ] **Step 7: Run orchestration and full tests**
 

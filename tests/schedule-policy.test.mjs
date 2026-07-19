@@ -52,7 +52,7 @@ describe("decideRun", () => {
   });
 
   it.each([-1, 1440, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "600", null, undefined])(
-    "rejects the invalid Beijing minute %s before reading state or adapters",
+    "rejects the invalid local minute %s before reading state or adapters",
     (minuteOfDay) => {
       const input = {
         trigger: "primary",
