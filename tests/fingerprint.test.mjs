@@ -136,12 +136,12 @@ describe("fingerprint enrollment", () => {
     expect(LOBBY_MATCH_THRESHOLD).toBe(0.88);
   });
 
-  it("accepts only three through five owned PNG frames", async () => {
+  it("accepts only three through twelve owned PNG frames", async () => {
     await expect(
       enroll(() => checkerFrame(), { count: 2 })
     ).rejects.toMatchObject({ code: "FINGERPRINT_FRAME_COUNT_INVALID" });
     await expect(
-      enroll(() => checkerFrame(), { count: 6 })
+      enroll(() => checkerFrame(), { count: 13 })
     ).rejects.toMatchObject({ code: "FINGERPRINT_FRAME_COUNT_INVALID" });
   });
 

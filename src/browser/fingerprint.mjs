@@ -13,8 +13,13 @@ const BLOCK_COUNT = GRID_COLUMNS * GRID_ROWS;
 const FEATURES_PER_BLOCK = 3;
 const SLOT_COUNT = BLOCK_COUNT * FEATURES_PER_BLOCK;
 const DROP_LOWEST_BLOCKS = 12;
-const ENROLLMENT_MINIMUM = 0.92;
+// Real lobbies animate; require mutual similarity at least as strong as live match.
+const ENROLLMENT_MINIMUM = 0.88;
+const ENROLLMENT_FRAME_MIN = 3;
+const ENROLLMENT_FRAME_MAX = 12;
 const MAX_INPUT_PIXELS = 16_000_000;
+const DARK_PIXEL_THRESHOLD = 18;
+const DARK_FRAME_RATIO = 0.92;
 const MAX_PADDING_ATTEMPTS = 32;
 const TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 const TONE_BOUNDARIES = [-48, -24, -8, 8, 24, 48];
@@ -34,7 +39,14 @@ function boundedError(code, message) {
 function frameCountInvalid() {
   return boundedError(
     "FINGERPRINT_FRAME_COUNT_INVALID",
-    "Fingerprint enrollment requires three through five frames."
+    "Fingerprint enrollment requires three through twelve frames."
+  );
+}
+
+function frameTooDark() {
+  return boundedError(
+    "FINGERPRINT_FRAME_TOO_DARK",
+    "A lobby fingerprint frame is too dark to enroll."
   );
 }
 
@@ -279,6 +291,49 @@ function checkedRandomBuffer(randomBytes, length) {
   return value;
 }
 
+function isMostlyDark(raw) {
+  let dark = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] < DARK_PIXEL_THRESHOLD) dark += 1;
+  }
+  return dark / raw.length >= DARK_FRAME_RATIO;
+}
+
+/**
+ * Pick three mutually similar frames from a burst. Animated lobbies often
+ * make an arbitrary 3–5 sample sequence fail; the densest stable triple wins.
+ */
+export function selectStableEnrollmentIndices(
+  frames,
+  minimum = ENROLLMENT_MINIMUM
+) {
+  if (!Array.isArray(frames) || frames.length < ENROLLMENT_FRAME_MIN) {
+    throw frameCountInvalid();
+  }
+
+  let best = null;
+  let bestScore = -1;
+  const count = frames.length;
+
+  for (let i = 0; i < count; i += 1) {
+    for (let j = i + 1; j < count; j += 1) {
+      for (let k = j + 1; k < count; k += 1) {
+        const ab = compareFrames(frames[i], frames[j]);
+        const ac = compareFrames(frames[i], frames[k]);
+        const bc = compareFrames(frames[j], frames[k]);
+        const score = Math.min(ab, ac, bc);
+        if (score >= minimum && score > bestScore) {
+          bestScore = score;
+          best = [i, j, k];
+        }
+      }
+    }
+  }
+
+  if (!best) throw enrollmentUnstable();
+  return best;
+}
+
 export async function enrollLobbyFrames(
   pngFrames,
   tokenizer,
@@ -291,8 +346,8 @@ export async function enrollLobbyFrames(
   try {
     if (
       !Array.isArray(pngFrames) ||
-      pngFrames.length < 3 ||
-      pngFrames.length > 5
+      pngFrames.length < ENROLLMENT_FRAME_MIN ||
+      pngFrames.length > ENROLLMENT_FRAME_MAX
     ) {
       throw frameCountInvalid();
     }
@@ -301,16 +356,12 @@ export async function enrollLobbyFrames(
     for (const png of pngFrames) {
       const raw = await decodePng(png);
       rawFrames.push(raw);
+      if (isMostlyDark(raw)) throw frameTooDark();
       frames.push(extractFrame(raw));
     }
 
-    for (let left = 0; left < frames.length; left += 1) {
-      for (let right = left + 1; right < frames.length; right += 1) {
-        if (compareFrames(frames[left], frames[right]) < ENROLLMENT_MINIMUM) {
-          throw enrollmentUnstable();
-        }
-      }
-    }
+    const selectedIndices = selectStableEnrollmentIndices(frames);
+    const selectedFrames = selectedIndices.map((index) => frames[index]);
 
     enrollmentRandom = checkedRandomBuffer(randomBytes, 16);
     const enrollmentIdHex = enrollmentRandom.toString("hex");
@@ -323,7 +374,7 @@ export async function enrollLobbyFrames(
       const feature = slot % FEATURES_PER_BLOCK;
       const values = new Set();
 
-      for (const frame of frames) {
+      for (const frame of selectedFrames) {
         values.add(
           checkedToken(
             tokenizer,

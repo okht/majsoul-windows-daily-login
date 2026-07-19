@@ -4,11 +4,16 @@ import { runVisibleSetup } from "../src/cli/setup-session.mjs";
 const TARGET = "https://game.maj-soul.com/1/";
 
 function fixture(overrides = {}) {
-  const frames = Array.from({ length: 5 }, (_, index) =>
+  const frames = Array.from({ length: 8 }, (_, index) =>
     Buffer.from("frame-" + index)
   );
+  let frameIndex = 0;
   const open = vi.fn(async () => {});
-  const frame = vi.fn(async () => frames[frame.mock.calls.length - 1]);
+  const frame = vi.fn(async () => {
+    const value = frames[frameIndex % frames.length];
+    frameIndex += 1;
+    return value;
+  });
   const close = vi.fn(async () => {});
   const session = new Proxy(Object.create(null), {
     get(_target, property) {
@@ -27,7 +32,7 @@ function fixture(overrides = {}) {
   const dependencies = {
     paths: { profile: "private-profile", fingerprint: "strict-record" },
     input: { terminal: "input" },
-    output: { terminal: "output" },
+    output: { write: vi.fn() },
     createSession: vi.fn(() => session),
     createInterface: vi.fn(() => prompt),
     sleep: vi.fn(async () => {}),
@@ -50,7 +55,7 @@ function fixture(overrides = {}) {
 }
 
 describe("runVisibleSetup", () => {
-  it("prompts once, samples five owned frames, and atomically stores one record", async () => {
+  it("prompts once, samples a burst of frames, and stores one record", async () => {
     const value = fixture();
 
     await runVisibleSetup(value.dependencies);
@@ -65,15 +70,13 @@ describe("runVisibleSetup", () => {
       output: value.dependencies.output
     });
     expect(value.prompt.question).toHaveBeenCalledTimes(1);
-    expect(value.frame).toHaveBeenCalledTimes(5);
-    expect(value.dependencies.sleep).toHaveBeenCalledTimes(4);
-    expect(value.dependencies.sleep).toHaveBeenCalledWith(2_000);
+    expect(value.frame).toHaveBeenCalledTimes(8);
+    expect(value.dependencies.sleep).toHaveBeenCalledWith(1_500);
+    expect(value.dependencies.sleep).toHaveBeenCalledWith(400);
 
     const [ownedFrames, usedTokenizer] =
       value.dependencies.enrollLobbyFrames.mock.calls[0];
-    expect(ownedFrames).toEqual(value.frames);
-    expect(ownedFrames.every((frame, index) => frame === value.frames[index]))
-      .toBe(true);
+    expect(ownedFrames).toHaveLength(8);
     expect(usedTokenizer).toBe(value.tokenizer);
     expect(value.dependencies.writeFingerprintRecord).toHaveBeenCalledOnce();
     expect(value.dependencies.writeFingerprintRecord).toHaveBeenCalledWith(
@@ -82,6 +85,25 @@ describe("runVisibleSetup", () => {
     );
     expect(value.prompt.close).toHaveBeenCalledOnce();
     expect(value.close).toHaveBeenCalledOnce();
+  });
+
+  it("retries unstable enrollment before giving up", async () => {
+    const unstable = Object.assign(new Error("unstable"), {
+      code: "FINGERPRINT_ENROLLMENT_UNSTABLE"
+    });
+    const value = fixture({
+      enrollLobbyFrames: vi
+        .fn()
+        .mockRejectedValueOnce(unstable)
+        .mockRejectedValueOnce(unstable)
+        .mockResolvedValueOnce({ ok: true })
+    });
+
+    await runVisibleSetup(value.dependencies);
+
+    expect(value.dependencies.enrollLobbyFrames).toHaveBeenCalledTimes(3);
+    expect(value.frame).toHaveBeenCalledTimes(24);
+    expect(value.dependencies.writeFingerprintRecord).toHaveBeenCalledOnce();
   });
 
   it("preserves an existing record when enrollment fails", async () => {
