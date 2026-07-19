@@ -10,7 +10,6 @@
 <a href="../../package.json"><img src="../assets/badges/node.svg" alt="Node.js >=22" height="32"></a>
 <a href="../../package.json"><img src="../assets/badges/version.svg" alt="Version 0.1.0" height="32"></a>
 <a href="#-亮点"><img src="../assets/badges/type.svg" alt="Type: Local Windows tool" height="32"></a>
-<a href="https://github.com/okht/majsoul-windows-daily-login"><img src="../assets/badges/stars.svg" alt="GitHub Stars" height="32"></a>
 
 <a href="#-安装"><img src="../assets/badges/platform.svg" alt="Platform: Windows 10/11" height="32"></a>
 <a href="#-工作流"><img src="../assets/badges/browser.svg" alt="Browser: Microsoft Edge + CDP" height="32"></a>
