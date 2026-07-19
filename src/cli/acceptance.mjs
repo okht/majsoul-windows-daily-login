@@ -13,14 +13,35 @@ import { appPaths } from "../paths.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
+/**
+ * Run a child process. On Windows, Node 24+ can throw spawn EINVAL for .cmd
+ * helpers when shell is false — use shell for non-node commands.
+ */
 function runCommand(command, args, options = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd ?? ROOT,
-      windowsHide: true,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    const cwd = options.cwd ?? ROOT;
+    const isNode = command === process.execPath;
+    const shell =
+      options.shell ??
+      (process.platform === "win32" && !isNode);
+
+    let child;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        windowsHide: true,
+        shell,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+    } catch (error) {
+      resolve({
+        code: 1,
+        stdout: "",
+        stderr: error?.message || String(error)
+      });
+      return;
+    }
+
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -30,12 +51,20 @@ function runCommand(command, args, options = {}) {
       stderr += chunk;
     });
     child.on("error", (error) => {
-      resolve({ code: 1, stdout, stderr: String(error) });
+      resolve({ code: 1, stdout, stderr: error?.message || String(error) });
     });
     child.on("close", (code) => {
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+function runNpm(args) {
+  if (process.platform === "win32") {
+    // Avoid npm.cmd + shell:false EINVAL on newer Node for Windows.
+    return runCommand("npm", args, { shell: true });
+  }
+  return runCommand("npm", args, { shell: false });
 }
 
 async function askYesNo(question, dependencies) {
@@ -58,12 +87,16 @@ async function tasksRegistered(dependencies) {
   if (typeof dependencies.listScheduledTasks === "function") {
     return dependencies.listScheduledTasks();
   }
-  const result = await runCommand("powershell.exe", [
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    "@('MajSoulDaily-Primary','MajSoulDaily-Catchup') | ForEach-Object { if (Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue) { $_ } }"
-  ]);
+  const result = await runCommand(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "@('MajSoulDaily-Primary','MajSoulDaily-Catchup') | ForEach-Object { if (Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue) { $_ } }"
+    ],
+    { shell: process.platform === "win32" }
+  );
   const names = result.stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -98,40 +131,53 @@ export async function runAcceptance(dependencies = {}) {
     details.push("verify:skipped-by-test-harness");
   } else {
     const verify = await (dependencies.runVerify?.() ??
-      runCommand(
-        process.platform === "win32" ? "npm.cmd" : "npm",
-        ["run", "verify"]
-      ));
+      runNpm(["run", "verify"]));
     checks.verify = verify.code === 0;
-    details.push("verify:exit=" + verify.code);
+    details.push(
+      "verify:exit=" +
+        verify.code +
+        (verify.code === 0 ? "" : " err=" + String(verify.stderr || "").slice(0, 120))
+    );
 
     const privacy = await (dependencies.runPrivacy?.() ??
-      runCommand(process.execPath, ["scripts/check-privacy.mjs"]));
+      runCommand(process.execPath, [
+        path.join(ROOT, "scripts", "check-privacy.mjs")
+      ]));
     checks.privacy = privacy.code === 0;
     details.push("privacy:exit=" + privacy.code);
 
     const noInput = await (dependencies.runNoInput?.() ??
-      runCommand(process.execPath, ["scripts/check-no-input.mjs"]));
+      runCommand(process.execPath, [
+        path.join(ROOT, "scripts", "check-no-input.mjs")
+      ]));
     checks.noInput = noInput.code === 0;
     details.push("noInput:exit=" + noInput.code);
   }
 
   const dryRun = await (dependencies.runDryRun?.() ??
-    runCommand("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      "scripts/install.ps1",
-      "-Mode",
-      "DryRun",
-      "-SkipVerify"
-    ]));
+    runCommand(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.join(ROOT, "scripts", "install.ps1"),
+        "-Mode",
+        "DryRun",
+        "-SkipVerify"
+      ],
+      { shell: process.platform === "win32" }
+    ));
   checks.dryRun =
     dryRun.code === 0 &&
     /no scheduled task was registered/i.test(dryRun.stdout + dryRun.stderr);
-  details.push("dryRun:exit=" + dryRun.code);
+  details.push(
+    "dryRun:exit=" +
+      dryRun.code +
+      (dryRun.code === 0 ? "" : " err=" + String(dryRun.stderr || "").slice(0, 120))
+  );
 
   const registered = await tasksRegistered(dependencies);
   checks.noTasksRegistered = registered.length === 0;
