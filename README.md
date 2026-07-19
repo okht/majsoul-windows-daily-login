@@ -4,10 +4,10 @@
 
 ### *在本机随机时间被动打开雀魂，复用现有浏览器会话进入大厅*
 
-![Status](https://img.shields.io/badge/Status-Design%20approved-7C3AED)
-![Stage](https://img.shields.io/badge/Stage-Pre--implementation-64748B)
+![Status](https://img.shields.io/badge/Status-Implementation%20in%20progress-7C3AED)
+![Stage](https://img.shields.io/badge/Stage-Core%20modules%20partial-64748B)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)
-![Browser](https://img.shields.io/badge/Browser-Edge%20planned-0D9488)
+![Browser](https://img.shields.io/badge/Browser-Edge%20passive-0D9488)
 
 ![Schedule](https://img.shields.io/badge/Schedule-Random%20window-F59E0B)
 ![Runtime](https://img.shields.io/badge/Runtime-Local%20only-16A34A)
@@ -17,7 +17,7 @@
 </div>
 
 > [!IMPORTANT]
-> 项目处于「设计已批准、代码待实施」阶段。仓库目前没有可执行程序，也没有经过验证的安装命令。
+> 项目处于「实现进行中」阶段。调度策略、被动 Edge、大厅指纹、零输入守卫和 Gmail 通知等核心模块已有代码与自动化测试，但每日编排、计划任务安装和本机端到端验收尚未完成。请勿将当前仓库当作已验证可安装成品；公开仓库中不应出现个人邮箱、绝对用户路径、Cookie、Token 或真实密钥。
 
 ## 项目目标
 
@@ -60,7 +60,8 @@ Windows 任务计划
 ## 隐私设计
 
 - 浏览器配置、运行状态、日志和 Gmail 凭据保存在仓库外的 `%LOCALAPPDATA%\MajSoulDaily`。
-- Gmail 应用专用密码计划存入 Windows 凭据管理器。
+- Gmail 应用专用密码存入 Windows 凭据管理器（不写进仓库或配置文件）。
+- 本地 `config.json` 只保存发件/收件地址，不含应用专用密码。
 - `.gitignore` 排除常见的凭据、浏览器数据、状态、日志和截图目录。
 - 公开仓库不应提交个人邮箱、绝对用户路径、Cookie、Token、密钥或真实浏览器配置。
 - 日志计划保留 14 天，并对账号、会话和请求数据进行脱敏。
@@ -68,13 +69,16 @@ Windows 任务计划
 ## 当前资料
 
 - [完整设计文档](docs/superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md)
+- [实施计划](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login.md)
 
 ## 实施状态
 
 - [x] 确认需求与安全边界
 - [x] 完成 Windows 方案设计
+- [x] 状态存储、调度门卫、被动 Edge 与大厅指纹
+- [x] 零输入静态守卫与本地 Gmail 失败通知（凭据走系统凭据管理器）
+- [ ] 每日编排与会话修复流程
 - [ ] 验证静默 Edge 能否加载雀魂 Canvas/WebGL
-- [ ] 编写运行器、状态存储和 Gmail 通知
 - [ ] 注册并验证 Windows 计划任务
 - [ ] 完成本机端到端验收
 
