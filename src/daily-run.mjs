@@ -2,9 +2,35 @@ import { failureFingerprint } from "./notifier.mjs";
 
 const TARGET = "https://game.maj-soul.com/1/";
 const MAX_BROWSER_ATTEMPTS = 2;
+/** Inclusive range: stay on lobby after SUCCESS before closing Edge. */
+const SUCCESS_DWELL_MIN_MS = 10_000;
+const SUCCESS_DWELL_MAX_MS = 30_000;
 
 function isTerminalStatus(status) {
   return status === "SUCCESS" || status === "BLOCKED_MANUAL";
+}
+
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Uniform inclusive integer ms in [SUCCESS_DWELL_MIN_MS, SUCCESS_DWELL_MAX_MS].
+ * @param {() => number} random unit interval [0, 1)
+ */
+export function pickSuccessDwellMs(random = Math.random) {
+  const span = SUCCESS_DWELL_MAX_MS - SUCCESS_DWELL_MIN_MS + 1;
+  return SUCCESS_DWELL_MIN_MS + Math.floor(random() * span);
+}
+
+async function dwellAfterSuccess(dependencies) {
+  const sleep =
+    typeof dependencies.sleep === "function" ? dependencies.sleep : defaultSleep;
+  const random =
+    typeof dependencies.random === "function"
+      ? dependencies.random
+      : Math.random;
+  await sleep(pickSuccessDwellMs(random));
 }
 
 function failurePayload(clock, fields, dependencies) {
@@ -104,6 +130,9 @@ async function runBrowserAttempts(clock, dependencies) {
           status: "SUCCESS",
           attempts: attempt
         });
+        // Keep the lobby session open briefly so the game client can settle
+        // (random 10–30s), then finally closes Edge.
+        await dwellAfterSuccess(dependencies);
         return { status: "SUCCESS" };
       }
 
