@@ -13,3 +13,7 @@ After a lobby match, Edge stays open for a random 10–30 seconds, then exits. T
 ## Where do login state and secrets live?
 
 Only on this PC under `%LOCALAPPDATA%\MajSoulDaily` and Windows Credential Manager. They are not committed to Git.
+
+## What if the session expires?
+
+Run `node src/cli/repair-session.mjs` (or setup again), verify, and refresh the local acceptance receipt before re-registering tasks.
