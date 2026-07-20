@@ -205,6 +205,7 @@ majsoul-windows-daily-login/
 ├── tests/                # Vitest unit + Edge integration matrix
 └── docs/
     ├── assets/logo.svg   # README hero logo (transparent robot)
+    ├── FAQ.md            # local-ops FAQ
     ├── lang/README_ZH.md
     └── superpowers/      # design + implementation plans (history)
 ```
@@ -217,6 +218,7 @@ majsoul-windows-daily-login/
 - **License:** Private / personal use (`package.json` `"private": true`). No OSI license file is published.  
 - **Terms risk:** Automated access may conflict with Mahjong Soul / Yostar terms. This project does **not** reduce detectability or bypass platform controls. Use at your own risk.  
 - **Session lifetime:** When cookies expire, run `node src/cli/repair-session.mjs` (or setup again), then re-verify. Re-run acceptance if you re-register tasks.  
+- **FAQ:** Common local-ops questions in [docs/FAQ.md](docs/FAQ.md).
 - **Design history:** [spec](docs/superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md) · [plan](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login.md) · [corrections](docs/superpowers/plans/2026-07-16-majsoul-windows-daily-login-corrections.md)
 
 ---
