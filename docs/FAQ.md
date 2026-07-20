@@ -17,3 +17,7 @@ Only on this PC under `%LOCALAPPDATA%\MajSoulDaily` and Windows Credential Manag
 ## What if the session expires?
 
 Run `node src/cli/repair-session.mjs` (or setup again), verify, and refresh the local acceptance receipt before re-registering tasks.
+
+## Does this click login buttons for me?
+
+No. The scheduled path never synthesizes clicks or keys. It opens the official client passively and only read-only-checks the lobby.
