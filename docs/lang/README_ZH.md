@@ -217,6 +217,7 @@ majsoul-windows-daily-login/
 - **许可：** 私人/自用（`package.json` `"private": true`），未发布 OSI 许可证文件。  
 - **条款风险：** 自动访问可能受雀魂 / Yostar 服务条款约束。本项目**不**降低可检测性、不绕过平台限制。请自担风险并遵守适用法律。  
 - **会话过期：** 运行 `node src/cli/repair-session.mjs`（或重新 setup），再 verify。若重新 Register，请先刷新本机验收回执。  
+- **FAQ：** 常见本机问题见 [../FAQ.md](../FAQ.md)。
 - **设计文档：** [说明](../superpowers/specs/2026-07-16-majsoul-windows-daily-login-design.md) · [计划](../superpowers/plans/2026-07-16-majsoul-windows-daily-login.md) · [修正案](../superpowers/plans/2026-07-16-majsoul-windows-daily-login-corrections.md)
 
 ---
