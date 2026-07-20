@@ -2,6 +2,7 @@
   "name": "majsoul-windows-daily-login",
   "version": "0.1.0",
   "private": true,
+  "description": "Passively open Mahjong Soul on Windows on a daily schedule, confirm the lobby, then exit.",
   "type": "module",
   "engines": {
     "node": ">=22"
